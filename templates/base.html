@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Ofício Geral{% endblock %} — DPU</title>
+
+    <!-- Tailwind + DaisyUI via CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.23/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX + Alpine.js -->
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+
+    <style>
+        /* Sidebar fixa no desktop */
+        .sidebar { width: 260px; min-height: 100vh; }
+        .main-content { margin-left: 260px; }
+        @media (max-width: 768px) {
+            .sidebar { width: 100%; min-height: auto; position: relative; }
+            .main-content { margin-left: 0; }
+        }
+
+        /* Badge de classificacao */
+        .badge-classif { font-size: 0.7rem; letter-spacing: 0.03em; }
+
+        /* Toast container */
+        .toast-container {
+            position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
+            display: flex; flex-direction: column; gap: 0.5rem;
+        }
+
+        /* HTMX loading indicator */
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+
+        /* Alpine cloak */
+        [x-cloak] { display: none !important; }
+    </style>
+
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-base-300 text-base-content min-h-screen flex">
+
+    <!-- Sidebar -->
+    <aside class="sidebar bg-base-200 border-r border-base-300 flex flex-col fixed top-0 left-0 z-40">
+        <!-- Header -->
+        <div class="p-5 border-b border-base-300">
+            <h1 class="text-xl font-bold text-primary">Ofício Geral</h1>
+            <p class="text-xs text-base-content/60 mt-1">2ª Categoria - DPU/AP</p>
+        </div>
+
+        <!-- Nav -->
+        <nav class="flex-1 p-3">
+            <ul class="menu menu-sm">
+                <li>
+                    <a href="/"
+                       class="{% if request.url.path == '/' %}active{% endif %}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-2.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                        </svg>
+                        PAJs
+                    </a>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Footer -->
+        <div class="p-4 border-t border-base-300 text-xs text-base-content/40">
+            <p>Defensoria Pública da União</p>
+            <p class="mt-1">v{{ app_version }}</p>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main-content flex-1 min-h-screen flex flex-col">
+        <div class="{% block content_class %}p-6 lg:p-8 max-w-7xl{% endblock %} flex-1">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Pipeline modal (compartilhado) -->
+    {% include "partials/pipeline_modal.html" %}
+
+    <!-- Busca global (Ctrl+K) -->
+    <dialog id="busca-modal" class="modal">
+        <div class="modal-box w-11/12 max-w-3xl p-0">
+            <div class="p-3 border-b border-base-300">
+                <input type="text" id="busca-input"
+                       class="input input-bordered w-full"
+                       placeholder="Buscar em todo o acervo (Esc fecha, &uarr;&darr; navega, Enter abre)..."
+                       autocomplete="off" />
+                <div class="text-xs text-base-content/50 mt-2 flex items-center gap-3">
+                    <span id="busca-status">digite pelo menos 2 caracteres</span>
+                    <span class="text-base-content/30" id="busca-count"></span>
+                </div>
+            </div>
+            <div id="busca-results" class="max-h-96 overflow-y-auto"></div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+    </dialog>
+
+    <!-- Modal de Resumo (global — funciona em qualquer pagina) -->
+    <dialog id="resumo-modal" class="modal">
+        <div class="modal-box w-11/12 max-w-4xl">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-lg">
+                    Resumo da elaboração — PAJ <span id="resumo-paj-label" class="font-mono"></span>
+                </h3>
+                <div class="flex gap-2">
+                    <a id="resumo-abrir-paj" href="#" class="btn btn-sm btn-ghost">Abrir PAJ</a>
+                    <form method="dialog"><button class="btn btn-sm btn-ghost">X</button></form>
+                </div>
+            </div>
+
+            <!-- Conteudo (preenchido via JS) -->
+            <div id="resumo-content" class="prose prose-sm prose-invert max-w-none whitespace-pre-wrap text-sm bg-base-300 p-4 rounded-lg max-h-[60vh] overflow-y-auto mb-4"></div>
+
+            <!-- Discordar / Corrigir -->
+            <div class="collapse collapse-arrow bg-base-200 border border-base-300">
+                <input type="checkbox" id="discordar-toggle" />
+                <div class="collapse-title text-sm font-semibold">
+                    Discordar ou pedir correção
+                </div>
+                <div class="collapse-content">
+                    <textarea id="correcao-text"
+                              class="textarea textarea-bordered w-full text-sm"
+                              rows="4"
+                              placeholder="Ex: Na verdade cabem embargos de declaração porque houve omissão sobre X. Refaça como ED."></textarea>
+                    <div class="flex justify-end gap-2 mt-2">
+                        <button class="btn btn-sm btn-primary"
+                                onclick="enviarCorrecaoAtual()">
+                            Enviar correção e refazer
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+    </dialog>
+
+    <!-- Modal de Correção direta (sem passar pelo resumo) -->
+    <dialog id="correcao-direta-modal" class="modal">
+        <div class="modal-box w-11/12 max-w-3xl">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-bold text-lg">
+                    Pedir correção / nova explicação — PAJ
+                    <span id="correcao-direta-paj-label" class="font-mono"></span>
+                </h3>
+                <form method="dialog"><button class="btn btn-sm btn-ghost">X</button></form>
+            </div>
+            <p class="text-xs text-base-content/60 mb-2" id="correcao-direta-contexto"></p>
+            <textarea id="correcao-direta-text"
+                      class="textarea textarea-bordered w-full text-sm"
+                      rows="6"
+                      placeholder="Ex: Refaça o despacho sem citar o art. X. / Acrescente fundamento sobre Y. / Ajuste o tom e seja mais objetivo."></textarea>
+            <div class="flex justify-end gap-2 mt-3">
+                <form method="dialog"><button class="btn btn-sm btn-ghost">Cancelar</button></form>
+                <button class="btn btn-sm btn-primary"
+                        onclick="enviarCorrecaoDireta()">
+                    Enviar correção e refazer
+                </button>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+    </dialog>
+
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

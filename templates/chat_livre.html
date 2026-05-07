@@ -1,0 +1,688 @@
+{% extends "base.html" %}
+{% block title %}Discussão — PAJ {{ paj_inicial }}{% endblock %}
+
+{% block content_class %}p-0 max-w-none{% endblock %}
+
+{% block head %}
+<style>
+    .cl-shell {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        height: 100vh;
+        max-height: 100vh;
+        overflow: hidden;
+    }
+    @media (max-width: 900px) {
+        .cl-shell { grid-template-columns: 1fr; }
+        .cl-sidebar { display: none; }
+    }
+
+    .cl-sidebar {
+        background: oklch(var(--b2));
+        border-right: 1px solid oklch(var(--bc) / 0.08);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+    }
+    .cl-sidebar-header { padding: 0.85rem; border-bottom: 1px solid oklch(var(--bc) / 0.08); }
+    .cl-sidebar-list { flex: 1; overflow-y: auto; padding: 0.4rem; }
+
+    .cl-conversa-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.55rem 0.65rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        font-size: 0.85rem;
+        margin-bottom: 0.1rem;
+        position: relative;
+    }
+    .cl-conversa-item:hover { background: oklch(var(--bc) / 0.06); }
+    .cl-conversa-item.ativa {
+        background: oklch(var(--p) / 0.13);
+        border: 1px solid oklch(var(--p) / 0.25);
+    }
+    .cl-conversa-titulo {
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.3;
+    }
+    .cl-conversa-meta {
+        font-size: 0.65rem;
+        color: oklch(var(--bc) / 0.5);
+        margin-top: 0.1rem;
+        line-height: 1.2;
+    }
+    .cl-conversa-acoes { display: none; gap: 0.25rem; }
+    .cl-conversa-item:hover .cl-conversa-acoes,
+    .cl-conversa-item.ativa .cl-conversa-acoes { display: flex; }
+    .cl-acao {
+        background: transparent;
+        border: 0;
+        color: oklch(var(--bc) / 0.55);
+        cursor: pointer;
+        padding: 0.15rem 0.3rem;
+        border-radius: 0.25rem;
+        font-size: 0.85rem;
+    }
+    .cl-acao:hover { background: oklch(var(--bc) / 0.12); color: oklch(var(--bc)); }
+
+    .cl-main {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+        background: oklch(var(--b3));
+    }
+    .cl-main-header {
+        padding: 0.6rem 1.25rem;
+        border-bottom: 1px solid oklch(var(--bc) / 0.08);
+        background: oklch(var(--b2));
+        flex-shrink: 0;
+    }
+    .cl-main-header-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    .cl-titulo-input {
+        background: transparent;
+        border: 0;
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: oklch(var(--bc));
+        flex: 1;
+        outline: none;
+        padding: 0.25rem 0;
+    }
+    .cl-titulo-input:focus { border-bottom: 1px dashed oklch(var(--p) / 0.5); }
+
+    .cl-mensagens {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.25rem 1.5rem;
+        display: flex;
+        flex-direction: column;
+    }
+    .cl-msg-user, .cl-msg-assistant {
+        max-width: 80%;
+        padding: 0.8rem 1.05rem;
+        border-radius: 0.85rem;
+        margin-bottom: 0.8rem;
+        font-size: 0.92rem;
+        line-height: 1.6;
+        word-wrap: break-word;
+        white-space: pre-wrap;
+    }
+    .cl-msg-user {
+        background: oklch(var(--p) / 0.18);
+        border: 1px solid oklch(var(--p) / 0.32);
+        align-self: flex-end;
+        border-bottom-right-radius: 0.25rem;
+    }
+    .cl-msg-assistant {
+        background: oklch(var(--b2));
+        border: 1px solid oklch(var(--bc) / 0.08);
+        align-self: flex-start;
+        border-bottom-left-radius: 0.25rem;
+    }
+    .cl-msg-tool {
+        font-size: 0.7rem;
+        color: oklch(var(--bc) / 0.45);
+        font-family: ui-monospace, monospace;
+        align-self: flex-start;
+        margin-bottom: 0.4rem;
+        padding: 0.1rem 0.4rem;
+    }
+    .cl-msg-error {
+        color: oklch(var(--er));
+        font-weight: 500;
+        align-self: flex-start;
+        font-size: 0.85rem;
+        padding: 0.4rem 0.8rem;
+        border-left: 2px solid oklch(var(--er) / 0.6);
+    }
+    .cl-typing {
+        align-self: flex-start;
+        color: oklch(var(--bc) / 0.5);
+        font-size: 0.85rem;
+        padding: 0.5rem 1rem;
+        font-style: italic;
+    }
+    .cl-typing span { animation: cl-blink 1.4s infinite both; }
+    .cl-typing span:nth-child(2) { animation-delay: 0.2s; }
+    .cl-typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes cl-blink {
+        0%, 80%, 100% { opacity: 0.2; }
+        40% { opacity: 1; }
+    }
+
+    .cl-input-area {
+        padding: 1rem 1.25rem 1.25rem 1.25rem;
+        border-top: 1px solid oklch(var(--bc) / 0.08);
+        background: oklch(var(--b2));
+        flex-shrink: 0;
+    }
+    .cl-input-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-end;
+    }
+    .cl-textarea {
+        flex: 1;
+        min-height: 44px;
+        max-height: 220px;
+        padding: 0.65rem 0.85rem;
+        border: 1px solid oklch(var(--bc) / 0.15);
+        border-radius: 0.6rem;
+        background: oklch(var(--b3));
+        color: oklch(var(--bc));
+        font-size: 0.92rem;
+        line-height: 1.5;
+        resize: none;
+        outline: none;
+        font-family: inherit;
+    }
+    .cl-textarea:focus { border-color: oklch(var(--p) / 0.5); }
+
+    .cl-empty {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: oklch(var(--bc) / 0.5);
+        text-align: center;
+        padding: 2rem;
+    }
+    .cl-empty h2 { color: oklch(var(--bc) / 0.7); font-size: 1.1rem; font-weight: 500; margin-bottom: 0.5rem; }
+    .cl-empty p { font-size: 0.88rem; max-width: 420px; line-height: 1.55; }
+
+    .cl-skill-pill {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        background: oklch(var(--a) / 0.18);
+        color: oklch(var(--a));
+        border: 1px solid oklch(var(--a) / 0.3);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="chatLivreApp()" x-init="init()" class="cl-shell">
+
+    <!-- ============= SIDEBAR ============= -->
+    <aside class="cl-sidebar">
+        <div class="cl-sidebar-header">
+            <div class="text-xs text-base-content/60 mb-1.5 uppercase tracking-wide font-semibold">
+                Conversas sobre o PAJ
+            </div>
+            <div class="font-mono text-sm font-bold mb-2" x-text="pajNorm"></div>
+            <button class="btn btn-primary btn-sm w-full"
+                    @click="novaConversa()"
+                    :disabled="!pajNorm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Nova conversa
+            </button>
+            <a :href="'/paj/' + pajNorm" class="btn btn-ghost btn-sm w-full mt-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                Voltar ao PAJ
+            </a>
+        </div>
+        <div class="cl-sidebar-list">
+            <template x-if="conversas.length === 0">
+                <div class="text-center text-xs text-base-content/40 py-8 px-4">
+                    Nenhuma conversa ainda neste PAJ.
+                </div>
+            </template>
+            <template x-for="c in conversas" :key="c.id">
+                <div class="cl-conversa-item"
+                     :class="{'ativa': c.id === conversaAtivaId}"
+                     @click="abrirConversa(c.id)">
+                    <div style="flex:1; min-width:0;">
+                        <div class="cl-conversa-titulo" x-text="c.titulo"></div>
+                        <div class="cl-conversa-meta">
+                            <span x-text="formatarData(c.atualizado_em)"></span>
+                            <span x-show="c.skill_slug" class="cl-skill-pill ml-1" x-text="'/' + c.skill_slug"></span>
+                            <span x-show="c.n_mensagens > 0" class="ml-1" x-text="c.n_mensagens + ' msgs'"></span>
+                        </div>
+                    </div>
+                    <div class="cl-conversa-acoes" @click.stop>
+                        <button class="cl-acao" title="Renomear" @click="renomear(c)">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                        </button>
+                        <button class="cl-acao" title="Apagar" @click="apagar(c)">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </aside>
+
+    <!-- ============= MAIN ============= -->
+    <main class="cl-main">
+
+        <!-- Header da conversa -->
+        <template x-if="conversaAtivaId">
+            <div class="cl-main-header">
+                <div class="text-sm breadcrumbs">
+                    <ul>
+                        <li><a href="/" class="text-primary">Caixa</a></li>
+                        <li><a :href="'/paj/' + pajNorm" class="text-primary" x-text="pajNorm"></a></li>
+                        <li>Discussão</li>
+                    </ul>
+                </div>
+                <div class="cl-main-header-row mt-1">
+                    <input type="text"
+                           class="cl-titulo-input"
+                           x-model="conversaAtiva.titulo"
+                           @blur="salvarTitulo()"
+                           @keydown.enter="$event.target.blur()"
+                           placeholder="Título da conversa..." />
+                    <select class="select select-bordered select-sm"
+                            style="max-width: 220px;"
+                            x-model="conversaAtiva.skill_slug"
+                            @change="salvarSkill()">
+                        <option value="">Sem skill</option>
+                        <template x-for="g in gruposSkills" :key="g">
+                            <optgroup :label="g">
+                                <template x-for="s in skillsAgrupadas[g]" :key="s.slug">
+                                    <option :value="s.slug" x-text="s.label"></option>
+                                </template>
+                            </optgroup>
+                        </template>
+                    </select>
+                    <span class="badge badge-sm" :class="badgeClass" x-text="statusText"></span>
+                </div>
+            </div>
+        </template>
+
+        <!-- Estado vazio: sem conversa selecionada -->
+        <template x-if="!conversaAtivaId">
+            <div class="cl-empty">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mb-4 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                <h2 x-show="pajNorm" x-text="'Discussão sobre o PAJ ' + pajNorm"></h2>
+                <h2 x-show="!pajNorm">Discussão de PAJ</h2>
+                <p x-show="pajNorm">
+                    Modo conversa para explorar tese, testar hipótese, brainstorm
+                    estratégico ou tirar dúvidas sobre este caso. O Claude já tem
+                    o PROMPT_MAX do PAJ como contexto e <strong>não vai produzir
+                    peça</strong> a menos que você peça.
+                </p>
+                <p x-show="!pajNorm">
+                    Esta tela só funciona aberta pelo botão "Discutir" de um PAJ.
+                    Volte ao detalhe de um PAJ e abra a aba "Discutir".
+                </p>
+                <button x-show="pajNorm"
+                        class="btn btn-primary btn-sm mt-4"
+                        @click="novaConversa()">
+                    Iniciar conversa
+                </button>
+            </div>
+        </template>
+
+        <!-- Mensagens -->
+        <template x-if="conversaAtivaId">
+            <div class="cl-mensagens" x-ref="msgs">
+                <template x-for="(m, i) in mensagens" :key="i">
+                    <div>
+                        <div x-show="m.type === 'user'" class="cl-msg-user" x-text="m.text"></div>
+                        <div x-show="m.type === 'assistant'" class="cl-msg-assistant" x-text="m.text"></div>
+                        <div x-show="m.type === 'tool'" class="cl-msg-tool" x-text="m.text"></div>
+                        <div x-show="m.type === 'error'" class="cl-msg-error" x-text="m.text"></div>
+                    </div>
+                </template>
+                <div x-show="estaDigitando" class="cl-typing">
+                    Claude pensando<span>.</span><span>.</span><span>.</span>
+                </div>
+            </div>
+        </template>
+
+        <!-- Input -->
+        <template x-if="conversaAtivaId">
+            <div class="cl-input-area">
+                <form @submit.prevent="enviar()" class="cl-input-row">
+                    <textarea class="cl-textarea"
+                              x-ref="txt"
+                              x-model="textoInput"
+                              placeholder="Pergunte, explore tese, peça brainstorm... (Enter envia, Shift+Enter quebra linha)"
+                              :disabled="!conectado"
+                              @input="autoResize($event.target)"
+                              @keydown.enter.prevent="onEnter($event)"
+                              rows="1"></textarea>
+                    <button type="submit"
+                            class="btn btn-primary"
+                            :disabled="!textoInput.trim() || !conectado || estaDigitando">
+                        Enviar
+                    </button>
+                </form>
+                <p class="text-xs text-base-content/40 mt-2">
+                    Modo discussão · Claude tem o PROMPT_MAX deste PAJ como contexto · multi-turn
+                </p>
+            </div>
+        </template>
+    </main>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function chatLivreApp() {
+    return {
+        // Estado
+        pajNorm: "{{ paj_inicial }}",
+        conversas: [],
+        conversaAtivaId: '',
+        conversaAtiva: { id: '', titulo: '', skill_slug: '', mensagens: [] },
+        mensagens: [],
+        textoInput: '',
+        ws: null,
+        conectado: false,
+        estaDigitando: false,
+        skillsAgrupadas: {},
+        gruposSkills: [],
+        msgAssistanteAtual: null,
+
+        get statusText() {
+            if (this.estaDigitando) return 'pensando';
+            if (this.conectado) return 'conectado';
+            return 'desconectado';
+        },
+        get badgeClass() {
+            if (this.estaDigitando) return 'badge-info animate-pulse';
+            if (this.conectado) return 'badge-success';
+            return 'badge-ghost';
+        },
+
+        async init() {
+            await this.recarregarSkills();
+            if (this.pajNorm) {
+                await this.recarregarConversas();
+            }
+            var convInicial = "{{ conv_inicial }}";
+            if (convInicial) {
+                this.abrirConversa(convInicial);
+            }
+        },
+
+        async recarregarSkills() {
+            try {
+                var url = '/api/skills' + (this.pajNorm ? ('?paj=' + encodeURIComponent(this.pajNorm)) : '');
+                var resp = await fetch(url);
+                var data = await resp.json();
+                var lista = data.skills || [];
+                var grupos = {};
+                var ordem = [];
+                for (var i = 0; i < lista.length; i++) {
+                    var s = lista[i];
+                    if (!grupos[s.grupo]) { grupos[s.grupo] = []; ordem.push(s.grupo); }
+                    grupos[s.grupo].push(s);
+                }
+                this.skillsAgrupadas = grupos;
+                this.gruposSkills = ordem;
+            } catch (e) {
+                this.skillsAgrupadas = {}; this.gruposSkills = [];
+            }
+        },
+
+        async recarregarConversas() {
+            if (!this.pajNorm) { this.conversas = []; return; }
+            try {
+                var resp = await fetch('/api/chat-livre/paj/' + encodeURIComponent(this.pajNorm) + '/conversas');
+                var data = await resp.json();
+                this.conversas = data.conversas || [];
+            } catch (e) {
+                this.conversas = [];
+            }
+        },
+
+        async novaConversa() {
+            if (!this.pajNorm) return;
+            try {
+                var resp = await fetch('/api/chat-livre/paj/' + encodeURIComponent(this.pajNorm) + '/conversas', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                if (!resp.ok) {
+                    var err = await resp.json();
+                    alert('Erro: ' + (err.erro || 'falha ao criar'));
+                    return;
+                }
+                var conv = await resp.json();
+                await this.recarregarConversas();
+                this.abrirConversa(conv.id);
+            } catch (e) {
+                alert('Erro ao criar conversa: ' + e);
+            }
+        },
+
+        async abrirConversa(id) {
+            this.fecharWS();
+            this.conversaAtivaId = id;
+            this.mensagens = [];
+            this.estaDigitando = false;
+            this.msgAssistanteAtual = null;
+
+            try {
+                var resp = await fetch('/api/chat-livre/conversas/' + id);
+                if (!resp.ok) throw new Error('not found');
+                var conv = await resp.json();
+                this.conversaAtiva = conv;
+                if (conv.paj_norm && conv.paj_norm !== this.pajNorm) {
+                    // Conversa de outro PAJ — atualiza o pajNorm e recarrega skills/lista
+                    this.pajNorm = conv.paj_norm;
+                    await this.recarregarSkills();
+                    await this.recarregarConversas();
+                }
+                var msgs = conv.mensagens || [];
+                for (var i = 0; i < msgs.length; i++) {
+                    var m = msgs[i];
+                    this.mensagens.push({
+                        type: m.role === 'user' ? 'user' : 'assistant',
+                        text: m.texto || ''
+                    });
+                }
+                this.scrollFim();
+            } catch (e) {
+                alert('Erro ao abrir conversa: ' + e.message);
+                this.conversaAtivaId = '';
+                return;
+            }
+            this.conectarWS(id);
+            // URL bookmark-friendly: ?conv=<id> (sem reload)
+            try {
+                var url = new URL(window.location);
+                url.searchParams.set('conv', id);
+                window.history.replaceState({}, '', url);
+            } catch (e) {}
+        },
+
+        conectarWS(id) {
+            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            var url = proto + '//' + location.host + '/ws/chat-livre/' + id;
+            var self = this;
+            this.ws = new WebSocket(url);
+            this.ws.onopen = function() { self.conectado = true; };
+            this.ws.onmessage = function(evt) {
+                try { self.handleEvent(JSON.parse(evt.data)); } catch (e) {}
+            };
+            this.ws.onclose = function() { self.conectado = false; self.estaDigitando = false; };
+            this.ws.onerror = function() {
+                self.conectado = false;
+                self.mensagens.push({type: 'error', text: 'Conexao perdida.'});
+            };
+        },
+
+        fecharWS() {
+            if (this.ws) {
+                try { this.ws.close(); } catch (e) {}
+                this.ws = null;
+            }
+            this.conectado = false;
+            this.estaDigitando = false;
+        },
+
+        handleEvent(data) {
+            if (data.type === 'text') {
+                this.estaDigitando = false;
+                if (!this.msgAssistanteAtual) {
+                    this.msgAssistanteAtual = {type: 'assistant', text: ''};
+                    this.mensagens.push(this.msgAssistanteAtual);
+                }
+                this.msgAssistanteAtual.text += data.text;
+                this.mensagens = [...this.mensagens];
+            }
+            else if (data.type === 'user') {
+                // ja adicionamos no enviar()
+            }
+            else if (data.type === 'tool') {
+                this.mensagens.push({type: 'tool', text: data.text});
+            }
+            else if (data.type === 'result') {
+                this.estaDigitando = false;
+                this.msgAssistanteAtual = null;
+                this.recarregarConversas();
+            }
+            else if (data.type === 'error') {
+                this.estaDigitando = false;
+                this.mensagens.push({type: 'error', text: data.text});
+            }
+            else if (data.type === 'done') {
+                this.estaDigitando = false;
+                this.conectado = false;
+            }
+            this.scrollFim();
+        },
+
+        enviar() {
+            var texto = this.textoInput.trim();
+            if (!texto || !this.ws || !this.conectado) return;
+            this.mensagens.push({type: 'user', text: texto});
+            this.msgAssistanteAtual = null;
+            this.estaDigitando = true;
+            this.ws.send(JSON.stringify({type: 'message', text: texto}));
+            this.textoInput = '';
+            this.$nextTick(() => {
+                if (this.$refs.txt) this.$refs.txt.style.height = 'auto';
+            });
+            this.scrollFim();
+        },
+
+        onEnter(ev) {
+            if (ev.shiftKey) {
+                ev.preventDefault();
+                var ta = ev.target;
+                var pos = ta.selectionStart;
+                this.textoInput = this.textoInput.slice(0, pos) + '\n' + this.textoInput.slice(pos);
+                this.$nextTick(() => {
+                    ta.selectionStart = ta.selectionEnd = pos + 1;
+                    this.autoResize(ta);
+                });
+            } else {
+                this.enviar();
+            }
+        },
+
+        autoResize(ta) {
+            ta.style.height = 'auto';
+            ta.style.height = Math.min(ta.scrollHeight, 220) + 'px';
+        },
+
+        scrollFim() {
+            this.$nextTick(() => {
+                var el = this.$refs.msgs;
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        },
+
+        async salvarTitulo() {
+            if (!this.conversaAtivaId) return;
+            var novo = (this.conversaAtiva.titulo || '').trim();
+            if (!novo) novo = 'Sem título';
+            try {
+                await fetch('/api/chat-livre/conversas/' + this.conversaAtivaId, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({titulo: novo})
+                });
+                await this.recarregarConversas();
+            } catch (e) {}
+        },
+
+        async salvarSkill() {
+            if (!this.conversaAtivaId) return;
+            var slug = this.conversaAtiva.skill_slug || '';
+            try {
+                await fetch('/api/chat-livre/conversas/' + this.conversaAtivaId, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({skill_slug: slug})
+                });
+                await this.recarregarConversas();
+            } catch (e) {}
+        },
+
+        async renomear(c) {
+            var novo = prompt('Novo título:', c.titulo);
+            if (novo === null) return;
+            novo = novo.trim();
+            if (!novo) return;
+            try {
+                await fetch('/api/chat-livre/conversas/' + c.id, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({titulo: novo})
+                });
+                await this.recarregarConversas();
+                if (c.id === this.conversaAtivaId) this.conversaAtiva.titulo = novo;
+            } catch (e) { alert('Erro ao renomear: ' + e); }
+        },
+
+        async apagar(c) {
+            if (!confirm('Apagar a conversa "' + c.titulo + '"? Esta acao nao pode ser desfeita.')) return;
+            try {
+                await fetch('/api/chat-livre/conversas/' + c.id, {method: 'DELETE'});
+                if (c.id === this.conversaAtivaId) {
+                    this.fecharWS();
+                    this.conversaAtivaId = '';
+                    this.mensagens = [];
+                }
+                await this.recarregarConversas();
+            } catch (e) { alert('Erro ao apagar: ' + e); }
+        },
+
+        formatarData(iso) {
+            if (!iso) return '';
+            try {
+                var d = new Date(iso);
+                if (isNaN(d.getTime())) return '';
+                var diff = (new Date() - d) / 1000;
+                if (diff < 60) return 'agora';
+                if (diff < 3600) return Math.floor(diff / 60) + 'min';
+                if (diff < 86400) return Math.floor(diff / 3600) + 'h';
+                if (diff < 86400 * 7) return Math.floor(diff / 86400) + 'd';
+                return d.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
+            } catch (e) { return ''; }
+        }
+    };
+}
+</script>
+{% endblock %}

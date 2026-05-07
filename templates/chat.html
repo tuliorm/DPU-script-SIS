@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}Chat — PAJ {{ paj_norm }}{% endblock %}
+
+{% block head %}
+<style>
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 200px);
+        min-height: 400px;
+    }
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+    }
+    .msg-assistant {
+        background: var(--fallback-b2, oklch(var(--b2)));
+        border-radius: 0.75rem 0.75rem 0.75rem 0.25rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.75rem;
+        max-width: 85%;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-size: 0.9rem;
+        line-height: 1.6;
+    }
+    .msg-user {
+        background: oklch(var(--p) / 0.15);
+        border: 1px solid oklch(var(--p) / 0.3);
+        border-radius: 0.75rem 0.75rem 0.25rem 0.75rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.75rem;
+        margin-left: auto;
+        max-width: 75%;
+        font-size: 0.9rem;
+    }
+    .msg-tool {
+        font-size: 0.7rem;
+        color: oklch(var(--bc) / 0.45);
+        padding: 0.15rem 0;
+        font-style: italic;
+        font-family: ui-monospace, monospace;
+    }
+    .msg-error {
+        color: oklch(var(--er));
+        font-weight: bold;
+        padding: 0.5rem;
+    }
+    .typing-indicator {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        font-size: 0.8rem;
+        color: oklch(var(--bc) / 0.5);
+    }
+    .typing-indicator span {
+        animation: blink 1.4s infinite both;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink {
+        0%, 80%, 100% { opacity: 0.2; }
+        40% { opacity: 1; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="chatApp()" x-init="connect()">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <div class="text-sm breadcrumbs mb-1">
+                <ul>
+                    <li><a href="/" class="text-primary">Caixa</a></li>
+                    <li><a href="/paj/{{ paj_norm }}" class="text-primary">{{ paj_norm }}</a></li>
+                    <li>Chat</li>
+                </ul>
+            </div>
+            <h2 class="text-xl font-bold">Elaborar Peça — PAJ {{ paj_norm }}</h2>
+            <p class="text-xs text-base-content/60 mt-1">
+                Claude vai analisar e decidir autonomamente (despacho, arquivamento ou recurso).
+                Se discordar no final, digite a correção no campo abaixo.
+            </p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="badge badge-sm" :class="statusClass" x-text="statusText"></span>
+            <button class="btn btn-sm btn-ghost" @click="stop()">Encerrar</button>
+        </div>
+    </div>
+
+    <!-- Chat area -->
+    <div class="chat-container bg-base-200 rounded-lg border border-base-300">
+        <!-- Messages -->
+        <div class="chat-messages" id="chat-messages" x-ref="messages">
+            <template x-for="(msg, i) in messages" :key="i">
+                <div>
+                    <div x-show="msg.type === 'user'" class="msg-user" x-text="msg.text"></div>
+                    <div x-show="msg.type === 'assistant'" class="msg-assistant" x-text="msg.text"></div>
+                    <div x-show="msg.type === 'tool'" class="msg-tool" x-text="msg.text"></div>
+                    <div x-show="msg.type === 'error'" class="msg-error" x-text="msg.text"></div>
+                </div>
+            </template>
+            <div x-show="isTyping" class="typing-indicator">
+                Claude pensando<span>.</span><span>.</span><span>.</span>
+            </div>
+        </div>
+
+        <!-- Input -->
+        <div class="p-3 border-t border-base-300">
+            <form @submit.prevent="sendMessage()" class="flex gap-2">
+                <input type="text"
+                       x-model="inputText"
+                       :disabled="!connected || isDone"
+                       placeholder="Digite sua resposta..."
+                       class="input input-bordered input-sm flex-1"
+                       x-ref="chatInput" />
+                <button type="submit"
+                        class="btn btn-primary btn-sm"
+                        :disabled="!inputText.trim() || !connected || isDone">
+                    Enviar
+                </button>
+            </form>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function chatApp() {
+    return {
+        messages: [],
+        inputText: '',
+        connected: false,
+        isDone: false,
+        isTyping: false,
+        ws: null,
+        currentAssistantMsg: null,
+
+        get statusText() {
+            if (this.isDone) return 'concluído';
+            if (this.connected) return 'conectado';
+            return 'conectando...';
+        },
+        get statusClass() {
+            if (this.isDone) return 'badge-success';
+            if (this.connected) return 'badge-info animate-pulse';
+            return 'badge-warning';
+        },
+
+        connect() {
+            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            var url = proto + '//' + location.host + '/ws/chat/{{ paj_norm }}';
+            this.ws = new WebSocket(url);
+
+            var self = this;
+
+            this.ws.onopen = function() {
+                self.connected = true;
+                self.isTyping = true;
+            };
+
+            this.ws.onmessage = function(evt) {
+                var data = JSON.parse(evt.data);
+                self.handleEvent(data);
+            };
+
+            this.ws.onclose = function() {
+                self.connected = false;
+                if (!self.isDone) {
+                    self.isDone = true;
+                }
+            };
+
+            this.ws.onerror = function() {
+                self.connected = false;
+                self.messages.push({type: 'error', text: 'Conexão perdida.'});
+            };
+        },
+
+        handleEvent(data) {
+            var msgsEl = this.$refs.messages;
+
+            if (data.type === 'text') {
+                this.isTyping = false;
+                // Acumula texto na mensagem assistente atual
+                if (!this.currentAssistantMsg) {
+                    this.currentAssistantMsg = {type: 'assistant', text: ''};
+                    this.messages.push(this.currentAssistantMsg);
+                }
+                this.currentAssistantMsg.text += data.text;
+                // Force reactivity
+                this.messages = [...this.messages];
+            }
+            else if (data.type === 'user') {
+                // Echo da mensagem do usuario
+                this.currentAssistantMsg = null;
+                this.messages.push({type: 'user', text: data.text});
+                this.isTyping = true;
+            }
+            else if (data.type === 'tool') {
+                this.messages.push({type: 'tool', text: data.text});
+            }
+            else if (data.type === 'result') {
+                // Claude terminou esta resposta — NAO encerra o chat (multi-turn)
+                this.isTyping = false;
+                // Nao adiciona texto: os deltas ja acumularam a resposta
+                this.currentAssistantMsg = null;
+                // Foca o input pra user responder
+                this.$nextTick(function() {
+                    if (self.$refs.chatInput) self.$refs.chatInput.focus();
+                });
+            }
+            else if (data.type === 'error') {
+                this.isTyping = false;
+                this.messages.push({type: 'error', text: data.text});
+            }
+            else if (data.type === 'done') {
+                this.isTyping = false;
+                this.isDone = true;
+                this.currentAssistantMsg = null;
+            }
+
+            // Auto-scroll
+            this.$nextTick(function() {
+                if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
+            });
+        },
+
+        sendMessage() {
+            if (!this.inputText.trim() || !this.ws) return;
+            this.ws.send(JSON.stringify({type: 'message', text: this.inputText}));
+            this.currentAssistantMsg = null;
+            this.inputText = '';
+            this.$refs.chatInput.focus();
+        },
+
+        stop() {
+            if (this.ws) {
+                this.ws.send(JSON.stringify({type: 'stop'}));
+                this.ws.close();
+            }
+            this.isDone = true;
+            this.connected = false;
+        }
+    };
+}
+</script>
+{% endblock %}

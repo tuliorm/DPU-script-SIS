@@ -1,0 +1,27 @@
+<!-- Modal de log da sincronizacao SISDPU -->
+<dialog id="sync-modal" class="modal">
+    <div class="modal-box w-11/12 max-w-4xl bg-base-300">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-lg" id="sync-title">Sincronizar caixa SISDPU</h3>
+            <div class="flex gap-2">
+                <span id="sync-status" class="badge badge-sm badge-ghost">aguardando</span>
+                <button type="button" class="btn btn-sm btn-error" id="sync-cancel-btn"
+                        onclick="cancelarSync()" style="display:none;">
+                    Cancelar
+                </button>
+                <form method="dialog">
+                    <button class="btn btn-sm btn-ghost" id="sync-close-btn">X</button>
+                </form>
+            </div>
+        </div>
+        <div id="sync-log"
+             class="bg-neutral text-neutral-content font-mono text-xs p-4 rounded-lg h-96 overflow-y-auto whitespace-pre-wrap">
+        </div>
+        <p class="text-xs text-base-content/60 mt-3">
+            A sincronização abre uma sessão headless no SISDPU, lê a caixa de entrada,
+            extrai movimentações, baixa peças em PDF e roda OCR. O painel recarrega
+            ao fechar este diálogo.
+        </p>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+</dialog>

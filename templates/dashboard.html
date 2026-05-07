@@ -1,0 +1,754 @@
+{% extends "base.html" %}
+{% block title %}PAJs{% endblock %}
+
+{% block content_class %}flex flex-col flex-1 p-0{% endblock %}
+
+{% block head %}
+<style>
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv11"; }
+
+  .list-scroll::-webkit-scrollbar { width: 10px; }
+  .list-scroll::-webkit-scrollbar-thumb { background: hsl(var(--b3)); border-radius: 8px; border: 2px solid hsl(var(--b2)); }
+  .list-scroll::-webkit-scrollbar-thumb:hover { background: hsl(var(--bc) / 0.2); }
+  .list-scroll::-webkit-scrollbar-track { background: transparent; }
+
+  .action-card { transition: transform .15s ease, border-color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+  .action-card:hover { transform: translateY(-1px); }
+
+  .paj-row { transition: background-color .12s ease; }
+  .paj-row:hover { background-color: hsl(var(--b3) / 0.75); }
+
+  .truncate-1 {
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+
+  @keyframes softpulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.92); }
+  }
+  .dot-pulse { animation: softpulse 2.2s ease-in-out infinite; }
+
+  .chip-input {
+    background: hsl(var(--b3));
+    border: 1px solid hsl(var(--bc) / 0.08);
+  }
+  .chip-input:hover { border-color: hsl(var(--bc) / 0.18); }
+  .chip-input:focus-within { border-color: hsl(var(--p) / 0.6); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="dashboardApp()" x-init="init()" x-cloak class="flex flex-col flex-1">
+
+  {% include "partials/sync_modal.html" %}
+
+  <!-- Banner de ambiente -->
+  {% if ambiente and ambiente.avisos %}
+  <div class="px-8 pt-5">
+    <div class="alert alert-warning">
+      <div>
+        <strong class="text-sm">Ambiente:</strong>
+        <ul class="text-xs list-disc ml-5 mt-1">
+          {% for aviso in ambiente.avisos %}
+          <li>{{ aviso }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Top bar -->
+  <div class="px-8 pt-6 pb-4 flex items-start gap-6">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-baseline gap-3">
+        <h1 class="text-3xl font-semibold tracking-tight">PAJs</h1>
+        <span class="text-base-content/50 tnum text-sm">
+          <span x-text="pajsFiltrados.length"></span> de <span class="tnum" x-text="pajs.length"></span>
+        </span>
+      </div>
+      <div class="text-xs text-base-content/50 mt-1 flex items-center gap-3 flex-wrap">
+        <span x-show="ultimaExecucao">
+          última atualização <span class="font-mono text-warning/90" x-text="ultimaExecucao"></span>
+        </span>
+        <div class="flex gap-2" x-show="stats.running > 0 || stats.queued > 0">
+          <span class="badge badge-warning badge-sm">
+            <span class="loading loading-spinner loading-xs mr-1"></span>
+            <span x-text="stats.running"></span> rodando
+          </span>
+          <span class="badge badge-ghost badge-sm" x-show="stats.queued > 0">
+            <span x-text="stats.queued"></span> em fila
+          </span>
+        </div>
+        <span class="badge badge-info badge-sm gap-1" x-show="prazosCalendarPendentes > 0">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"></path></svg>
+          <strong x-text="prazosCalendarPendentes"></strong> prazo(s) pendentes no Calendar
+        </span>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 pt-1">
+      <label class="flex items-center gap-2 cursor-pointer select-none" x-show="mostrarArquivados || totalArquivados > 0">
+        <input type="checkbox" class="toggle toggle-sm toggle-primary" x-model="mostrarArquivados" @change="recarregar()">
+        <span class="text-sm text-base-content/70">
+          Mostrar concluídos
+          <span class="text-base-content/40 tnum" x-show="!mostrarArquivados && totalArquivados > 0" x-text="`(+${totalArquivados})`"></span>
+        </span>
+      </label>
+      <div class="join">
+        <button class="join-item btn btn-primary btn-sm gap-2 normal-case" onclick="sincronizarCaixa(true)">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12a7.5 7.5 0 0 1-13.05 5.07M4.5 12A7.5 7.5 0 0 1 17.55 6.93M4.5 4.5v4.5h4.5M19.5 19.5V15h-4.5"></path></svg>
+          Sincronizar caixa
+        </button>
+        <div class="dropdown dropdown-end">
+          <div tabindex="0" role="button" class="join-item btn btn-primary btn-sm px-2" title="Mais opções de sincronização">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"></path></svg>
+          </div>
+          <ul tabindex="0" class="dropdown-content menu bg-base-200 rounded-box z-[1] w-64 p-2 shadow border border-base-content/10 mt-1">
+            <li>
+              <a onclick="sincronizarCaixa(true)" class="text-sm">
+                <div class="flex flex-col">
+                  <span class="font-semibold">Sincronizar (com anexos)</span>
+                  <span class="text-xs text-base-content/60">baixa PDFs e roda OCR</span>
+                </div>
+              </a>
+            </li>
+            <li>
+              <a onclick="sincronizarCaixa(false)" class="text-sm">
+                <div class="flex flex-col">
+                  <span class="font-semibold">Sincronizar rápido (sem anexos)</span>
+                  <span class="text-xs text-base-content/60">só movimentações e metadata</span>
+                </div>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Cards -->
+  <section class="px-8 pb-5">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+      <!-- Prazo em andamento -->
+      <button type="button"
+              class="action-card group text-left rounded-xl px-4 py-3 border relative overflow-hidden"
+              :class="filtroCategoria === 'prazo'
+                ? 'bg-error/10 border-error/60 ring-2 ring-error/50'
+                : 'bg-base-300 border-base-content/5 hover:border-error/30'"
+              @click="toggleCategoria('prazo')">
+        <div class="absolute top-2.5 right-2.5 transition-opacity" :class="filtroCategoria === 'prazo' ? 'opacity-100' : 'opacity-0'">
+          <div class="w-4 h-4 rounded-full bg-error flex items-center justify-center">
+            <svg class="w-2.5 h-2.5 text-error-content" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m5 12 5 5L20 7"></path></svg>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 mb-1.5">
+          <div class="w-6 h-6 rounded-md bg-error/15 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-error" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"></path></svg>
+          </div>
+          <span class="text-[10px] font-semibold tracking-[0.14em] uppercase text-error">Prazo em andamento</span>
+          <span class="ml-auto w-2 h-2 rounded-full bg-error dot-pulse" x-show="pendencias.prazo.length > 0"></span>
+          <span class="ml-auto w-2 h-2 rounded-full bg-error/30" x-show="pendencias.prazo.length === 0"></span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <div class="text-5xl font-semibold tnum leading-none"
+               :class="pendencias.prazo.length > 0 ? 'text-error' : 'text-base-content/25'"
+               x-text="pendencias.prazo.length"></div>
+        </div>
+        <div class="mt-1.5 text-xs text-base-content/60 leading-snug">Intimações recentes sem resposta</div>
+        <div class="mt-2 pt-2 border-t border-base-content/5 flex justify-end text-[11px]">
+          <span class="text-error/80 font-medium inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            filtrar <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6 19.5 12l-6 6M19.5 12H4.5"></path></svg>
+          </span>
+        </div>
+      </button>
+
+      <!-- Despacho novo -->
+      <button type="button"
+              class="action-card group text-left rounded-xl px-4 py-3 border relative overflow-hidden"
+              :class="filtroCategoria === 'despacho'
+                ? 'bg-warning/10 border-warning/60 ring-2 ring-warning/50'
+                : 'bg-base-300 border-base-content/5 hover:border-warning/30'"
+              @click="toggleCategoria('despacho')">
+        <div class="absolute top-2.5 right-2.5 transition-opacity" :class="filtroCategoria === 'despacho' ? 'opacity-100' : 'opacity-0'">
+          <div class="w-4 h-4 rounded-full bg-warning flex items-center justify-center">
+            <svg class="w-2.5 h-2.5 text-warning-content" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m5 12 5 5L20 7"></path></svg>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 mb-1.5">
+          <div class="w-6 h-6 rounded-md bg-warning/15 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-warning" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h3m3-12H6a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 6 22.5h12a1.5 1.5 0 0 0 1.5-1.5V9L15 4.5Zm0 0V9h4.5"></path></svg>
+          </div>
+          <span class="text-[10px] font-semibold tracking-[0.14em] uppercase text-warning">Despacho novo</span>
+          <span class="ml-auto w-2 h-2 rounded-full" :class="pendencias.despacho.length > 0 ? 'bg-warning dot-pulse' : 'bg-warning/30'"></span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <div class="text-5xl font-semibold tnum leading-none"
+               :class="pendencias.despacho.length > 0 ? 'text-warning' : 'text-base-content/25'"
+               x-text="pendencias.despacho.length"></div>
+          <div class="text-xs pb-0.5 text-base-content/40" x-show="pendencias.despacho.length === 0">nenhum</div>
+        </div>
+        <div class="mt-1.5 text-xs text-base-content/60 leading-snug">Decisões/despachos recentes sem peça posterior</div>
+        <div class="mt-2 pt-2 border-t border-base-content/5 flex justify-end text-[11px]">
+          <span class="text-warning/80 font-medium inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            filtrar <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6 19.5 12l-6 6M19.5 12H4.5"></path></svg>
+          </span>
+        </div>
+      </button>
+
+      <!-- Aguardando juntada -->
+      <button type="button"
+              class="action-card group text-left rounded-xl px-4 py-3 border relative overflow-hidden"
+              :class="filtroCategoria === 'juntada'
+                ? 'bg-info/10 border-info/60 ring-2 ring-info/50'
+                : 'bg-base-300 border-base-content/5 hover:border-info/30'"
+              @click="toggleCategoria('juntada')">
+        <div class="absolute top-2.5 right-2.5 transition-opacity" :class="filtroCategoria === 'juntada' ? 'opacity-100' : 'opacity-0'">
+          <div class="w-4 h-4 rounded-full bg-info flex items-center justify-center">
+            <svg class="w-2.5 h-2.5 text-info-content" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m5 12 5 5L20 7"></path></svg>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 mb-1.5">
+          <div class="w-6 h-6 rounded-md bg-info/15 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-info" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 13.5h9m-9 3h6m1.5-15h-9A1.5 1.5 0 0 0 4.5 3v18a1.5 1.5 0 0 0 1.5 1.5h12A1.5 1.5 0 0 0 19.5 21V9L13.5 1.5Zm0 0V9H19.5"></path></svg>
+          </div>
+          <span class="text-[10px] font-semibold tracking-[0.14em] uppercase text-info">Aguardando juntada</span>
+          <span class="ml-auto w-2 h-2 rounded-full" :class="pendencias.juntada.length > 0 ? 'bg-info dot-pulse' : 'bg-info/30'"></span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <div class="text-5xl font-semibold tnum leading-none"
+               :class="pendencias.juntada.length > 0 ? 'text-info' : 'text-base-content/25'"
+               x-text="pendencias.juntada.length"></div>
+          <div class="text-xs pb-0.5 text-base-content/40" x-show="pendencias.juntada.length === 0">nenhum</div>
+        </div>
+        <div class="mt-1.5 text-xs text-base-content/60 leading-snug">Peça gerada, sem mov. de juntada</div>
+        <div class="mt-2 pt-2 border-t border-base-content/5 flex justify-end text-[11px]">
+          <span class="text-info/80 font-medium inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            filtrar <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6 19.5 12l-6 6M19.5 12H4.5"></path></svg>
+          </span>
+        </div>
+      </button>
+
+    </div>
+  </section>
+
+  <!-- Filter Bar -->
+  <section class="px-8 pb-4">
+    <div class="bg-base-300 rounded-xl border border-base-content/5 p-2 flex items-center gap-2 overflow-x-auto">
+
+      <!-- Busca (expande) -->
+      <label class="flex-1 min-w-[200px] flex items-center gap-2 px-3 h-10 chip-input rounded-lg">
+        <svg class="w-4 h-4 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.3-4.3m1.8-5.7a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"></path></svg>
+        <input type="text" x-model="busca" @input.debounce.300ms="aplicarFiltros()"
+               placeholder="Buscar assistido, PAJ ou processo…"
+               class="bg-transparent w-full text-sm placeholder:text-base-content/40 focus:outline-none">
+      </label>
+
+      <div class="w-px h-6 bg-base-content/5 hidden sm:block"></div>
+
+      <!-- Ofício -->
+      <label class="flex items-center gap-2 px-3 h-10 chip-input rounded-lg cursor-pointer">
+        <svg class="w-4 h-4 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18M18.75 3v18M9 9h1.5m3 0H15M9 12h1.5m3 0H15M9 15h6"></path></svg>
+        <select x-model="filtroOficio" @change="aplicarFiltros()" class="bg-transparent text-sm focus:outline-none cursor-pointer appearance-none pr-1">
+          <option value="">Todos os ofícios</option>
+          <template x-for="o in oficiosUnicos" :key="o">
+            <option :value="o" x-text="o"></option>
+          </template>
+        </select>
+        <svg class="w-3.5 h-3.5 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"></path></svg>
+      </label>
+
+      <!-- Área -->
+      <label class="flex items-center gap-2 px-3 h-10 chip-input rounded-lg cursor-pointer">
+        <svg class="w-4 h-4 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h3.879c.597 0 1.17.237 1.591.659l1.621 1.62c.422.422.995.659 1.592.659H18A2.25 2.25 0 0 1 20.25 9v9A2.25 2.25 0 0 1 18 20.25H6A2.25 2.25 0 0 1 3.75 18V6Z"></path></svg>
+        <select x-model="filtroForo" @change="aplicarFiltros()" class="bg-transparent text-sm focus:outline-none cursor-pointer appearance-none pr-1">
+          <option value="">Todas as áreas</option>
+          <template x-for="a in areasUnicas" :key="a">
+            <option :value="a" x-text="formatarArea(a)"></option>
+          </template>
+        </select>
+        <svg class="w-3.5 h-3.5 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"></path></svg>
+      </label>
+
+      <!-- Pretensão -->
+      <label class="flex items-center gap-2 px-3 h-10 chip-input rounded-lg cursor-pointer">
+        <svg class="w-4 h-4 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M6 12h12M10 18h4"></path></svg>
+        <select x-model="filtroClassif" @change="aplicarFiltros()" class="bg-transparent text-sm focus:outline-none cursor-pointer appearance-none pr-1 min-w-[160px]">
+          <option value="">Todas as pretensões</option>
+          <template x-for="c in classificacoesUnicas" :key="c">
+            <option :value="c" x-text="c"></option>
+          </template>
+        </select>
+        <svg class="w-3.5 h-3.5 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"></path></svg>
+      </label>
+
+      <!-- Limpar -->
+      <button type="button"
+              class="btn btn-ghost btn-sm normal-case text-base-content/60 hover:text-base-content gap-1.5"
+              x-show="filtroOficio || filtroForo || filtroClassif || busca || filtroCategoria"
+              @click="limparFiltros()" x-transition.opacity>
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"></path></svg>
+        Limpar
+      </button>
+    </div>
+
+    <!-- Chips de filtros ativos -->
+    <div class="flex items-center gap-2 mt-2.5 text-xs text-base-content/50 min-h-[20px] flex-wrap"
+         x-show="filtroCategoria || filtroOficio || filtroForo || filtroClassif || busca"
+         x-transition.opacity>
+      <span>Filtrando por:</span>
+      <template x-if="filtroCategoria === 'prazo'">
+        <span class="badge badge-sm bg-error/15 text-error border-error/30 gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-error"></span> Prazo em andamento
+          <button @click.stop="filtroCategoria = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
+        </span>
+      </template>
+      <template x-if="filtroCategoria === 'despacho'">
+        <span class="badge badge-sm bg-warning/15 text-warning border-warning/30 gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-warning"></span> Despacho novo
+          <button @click.stop="filtroCategoria = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
+        </span>
+      </template>
+      <template x-if="filtroCategoria === 'juntada'">
+        <span class="badge badge-sm bg-info/15 text-info border-info/30 gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-info"></span> Aguardando juntada
+          <button @click.stop="filtroCategoria = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
+        </span>
+      </template>
+      <template x-if="filtroForo">
+        <span class="badge badge-sm badge-ghost gap-1">
+          <span x-text="filtroForo"></span>
+          <button @click.stop="filtroForo = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
+        </span>
+      </template>
+      <template x-if="filtroOficio">
+        <span class="badge badge-sm badge-ghost gap-1">
+          <span x-text="filtroOficio"></span>
+          <button @click.stop="filtroOficio = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
+        </span>
+      </template>
+      <template x-if="busca">
+        <span class="badge badge-sm badge-ghost gap-1">
+          "<span x-text="busca"></span>"
+          <button @click.stop="busca = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
+        </span>
+      </template>
+    </div>
+  </section>
+
+  <!-- Lista de PAJs -->
+  <section class="px-8 pb-8 flex-1 min-h-0 flex flex-col">
+
+    <!-- Cabeçalho da lista -->
+    <div class="px-4 py-2 flex items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-base-content/40 font-semibold">
+      <div class="w-[148px]">
+        <button class="flex items-center gap-1 hover:text-base-content/70 transition-colors" @click="ordenarPor('paj')">
+          PAJ <span x-text="iconOrdem('paj')"></span>
+        </button>
+      </div>
+      <div class="w-[380px] shrink">
+        <button class="flex items-center gap-1 hover:text-base-content/70 transition-colors" @click="ordenarPor('assistido')">
+          Assistido · Pretensão <span x-text="iconOrdem('assistido')"></span>
+        </button>
+      </div>
+      <div class="w-[104px]">Área</div>
+      <div class="w-[88px]">
+        <button class="flex items-center gap-1 hover:text-base-content/70 transition-colors" @click="ordenarPor('data_caixa')">
+          Data <span x-text="iconOrdem('data_caixa')"></span>
+        </button>
+      </div>
+      <div class="w-[76px] text-center">Anexos</div>
+      <div class="w-5 shrink-0"></div>
+      <div class="w-[200px] text-right pr-1">Elaboração</div>
+    </div>
+
+    <div class="bg-base-300 rounded-xl border border-base-content/5 flex-1 overflow-hidden flex flex-col">
+      <div class="list-scroll overflow-y-auto divide-y divide-base-content/5" style="max-height: calc(100vh - 430px); min-height: 280px;">
+
+        <template x-for="paj in pajsFiltrados" :key="paj.paj_norm">
+          <div class="paj-row px-4 py-3 flex items-center gap-3 group cursor-pointer"
+               :class="pendencias.prazo.includes(paj.paj_norm) ? 'border-l-2 border-l-error/60' : (novidadesDe(paj).tem ? 'border-l-2 border-l-info/70' : 'border-l-2 border-l-transparent')"
+               @click="window.location.href = '/paj/' + paj.paj_norm">
+
+            <!-- Número do PAJ -->
+            <div class="w-[148px] shrink-0">
+              <div class="flex items-center gap-1.5">
+                <div class="font-mono text-sm font-semibold tracking-tight" x-text="paj.paj"></div>
+                <template x-if="novidadesDe(paj).tem">
+                  <span class="inline-flex items-center gap-0.5 text-[9.5px] font-bold text-info bg-info/15 rounded-full px-1.5 py-0.5 leading-none"
+                        :title="(novidadesDe(paj).novo ? 'Nunca visitado' : 'Mudanças desde sua última visita')">
+                    <span class="w-1 h-1 rounded-full bg-info"></span>
+                    <template x-if="novidadesDe(paj).movs > 0">
+                      <span x-text="'+' + novidadesDe(paj).movs + 'm'"></span>
+                    </template>
+                    <template x-if="novidadesDe(paj).anexos > 0">
+                      <span x-text="'+' + novidadesDe(paj).anexos + 'a'"></span>
+                    </template>
+                    <template x-if="novidadesDe(paj).novo">
+                      <span>novo</span>
+                    </template>
+                  </span>
+                </template>
+              </div>
+              <div class="font-mono text-[10.5px] text-base-content/40 mt-0.5 truncate" x-text="paj.processo_judicial || ''"></div>
+              <template x-if="paj.etiqueta">
+                <span class="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-accent/80 bg-accent/10 rounded px-1.5 py-0.5">
+                  <span class="w-1 h-1 rounded-full bg-accent"></span>
+                  <span x-text="paj.etiqueta"></span>
+                </span>
+              </template>
+            </div>
+
+            <!-- Assistido + pretensão -->
+            <div class="w-[380px] shrink min-w-0">
+              <div class="text-[13px] font-semibold truncate" x-text="paj.assistido || '—'"></div>
+              <div class="text-[11px] text-base-content/50 mt-0.5" x-text="normalizarOficio(paj.oficio) || ''"></div>
+              <div class="mt-1 text-[12px] text-base-content/70 truncate-1" :title="paj.classificacao">
+                <span class="text-base-content/40" x-text="(formatarArea(paj.foro) || '') + ' »'"></span>
+                <span x-text="' ' + (paj.classificacao || '')"></span>
+              </div>
+            </div>
+
+            <!-- Badge de área -->
+            <div class="w-[104px] shrink-0">
+              <span class="badge badge-sm font-medium border"
+                    :class="{
+                      'bg-error/15 text-error border-error/30': (paj.foro || '').toLowerCase() === 'criminal',
+                      'bg-info/15 text-info border-info/30': (paj.foro || '').toLowerCase() === 'civel',
+                      'bg-warning/15 text-warning border-warning/30': (paj.foro || '').toLowerCase() === 'previdenciario',
+                      'bg-success/15 text-success border-success/30': (paj.foro || '').toLowerCase() === 'saude',
+                      'bg-base-content/10 text-base-content/60 border-base-content/15': !['criminal','civel','previdenciario','saude'].includes((paj.foro || '').toLowerCase())
+                    }"
+                    x-text="formatarArea(paj.foro) || '—'"></span>
+              <template x-if="paj.prazos_abertos && paj.prazos_abertos.length > 0">
+                <span class="badge badge-xs badge-error mt-0.5 block w-fit">PRAZO</span>
+              </template>
+              <template x-if="paj.sync_incompleto">
+                <span class="badge badge-xs badge-error mt-0.5 block w-fit"
+                      :title="paj.sync_incompleto_motivo || 'Sincronização incompleta — re-sincronize'">
+                  ⚠ PARCIAL
+                </span>
+              </template>
+            </div>
+
+            <!-- Data -->
+            <div class="w-[88px] shrink-0">
+              <div class="font-mono text-xs text-base-content/80 tnum" x-text="formatarData(paj.data_caixa)"></div>
+              <div class="text-[10px] text-base-content/40 mt-0.5" x-text="dataRelativa(paj.data_caixa)"></div>
+            </div>
+
+            <!-- Peças -->
+            <div class="w-[76px] shrink-0 flex justify-center">
+              <div x-show="paj.n_anexos_sisdpu > 0 || paj.n_pecas > 0"
+                   class="inline-flex items-center gap-1 bg-base-200 rounded-md px-2 py-1">
+                <svg class="w-3 h-3 text-base-content/40" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h6l4.5 4.5v12a1.5 1.5 0 0 1-1.5 1.5h-9a1.5 1.5 0 0 1-1.5-1.5V5.25a1.5 1.5 0 0 1 1.5-1.5Z"></path></svg>
+                <span class="font-mono text-xs font-semibold tnum text-info" x-show="paj.n_anexos_sisdpu > 0" x-text="paj.n_anexos_sisdpu"></span>
+                <span class="text-base-content/20 text-xs" x-show="paj.n_anexos_sisdpu > 0 && paj.n_pecas > 0">·</span>
+                <span class="font-mono text-xs font-semibold tnum text-success" x-show="paj.n_pecas > 0" x-text="paj.n_pecas + '✓'"></span>
+              </div>
+              <span class="text-xs text-base-content/30" x-show="!paj.n_anexos_sisdpu && !paj.n_pecas">—</span>
+            </div>
+
+            <!-- Divisor -->
+            <div class="w-5 shrink-0 flex justify-center">
+              <div class="w-px h-7 bg-base-content/10"></div>
+            </div>
+
+            <!-- Elaboração (status em tempo real) -->
+            <div class="w-[200px] shrink-0 flex justify-end gap-1.5" @click.stop>
+              <template x-if="statusOf(paj.paj_norm).status === 'running'">
+                <div class="flex items-center gap-2">
+                  <span class="loading loading-spinner loading-xs text-warning"></span>
+                  <span class="text-xs text-base-content/70 truncate max-w-[140px]"
+                        x-text="statusOf(paj.paj_norm).last_action || 'trabalhando...'"></span>
+                </div>
+              </template>
+              <template x-if="statusOf(paj.paj_norm).status === 'queued'">
+                <span class="badge badge-ghost badge-sm">em fila</span>
+              </template>
+              <template x-if="statusOf(paj.paj_norm).status === 'done'">
+                <button class="btn btn-sm btn-success normal-case gap-1.5 font-medium"
+                        @click.stop="abrirResumoCaixa(paj.paj_norm)">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.01 1.01 0 0 1 0-.644C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .644C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"></path><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"></path></svg>
+                  Ver Resumo
+                </button>
+              </template>
+              <template x-if="statusOf(paj.paj_norm).status === 'error'">
+                <span class="badge badge-error badge-sm">erro</span>
+              </template>
+              <template x-if="!statusOf(paj.paj_norm).status || statusOf(paj.paj_norm).status === 'idle'">
+                <button class="btn btn-sm btn-ghost normal-case gap-1.5 text-base-content/50 border border-base-content/10
+                               hover:border-base-content/25 hover:bg-base-200
+                               opacity-0 group-hover:opacity-100 transition-opacity">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"></path></svg>
+                  Abrir PAJ
+                </button>
+              </template>
+            </div>
+
+          </div>
+        </template>
+
+        <!-- Estado vazio -->
+        <div x-show="pajsFiltrados.length === 0" class="px-6 py-16 text-center">
+          <div class="w-12 h-12 rounded-full bg-base-200 mx-auto flex items-center justify-center mb-3">
+            <svg class="w-5 h-5 text-base-content/40" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.3-4.3m1.8-5.7a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"></path></svg>
+          </div>
+          <div class="text-sm text-base-content/60 font-medium">Nenhum PAJ encontrado</div>
+          <div class="text-xs text-base-content/40 mt-1">Tente limpar os filtros ou ajustar a busca.</div>
+          <button class="btn btn-sm btn-ghost normal-case mt-3" @click="limparFiltros()">Limpar filtros</button>
+        </div>
+      </div>
+
+      <!-- Rodapé da lista -->
+      <div class="px-4 py-2.5 bg-base-200/60 border-t border-base-content/5 text-xs text-base-content/50 flex items-center gap-3 shrink-0">
+        <span><span class="tnum" x-text="pajsFiltrados.length"></span> exibidos</span>
+        <span class="text-base-content/20">·</span>
+        <span>total: <span class="tnum" x-text="pajs.length"></span></span>
+        <span class="ml-auto flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+          sincronizado
+        </span>
+      </div>
+    </div>
+
+  </section>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function dashboardApp() {
+    return {
+        pajs: [],
+        pajsFiltrados: [],
+        ultimaExecucao: '',
+        totalArquivados: 0,
+        mostrarArquivados: false,
+        filtroOficio: '',
+        filtroForo: '',
+        filtroClassif: '',
+        filtroCategoria: '',
+        busca: '',
+        ordemCampo: 'data_caixa',
+        ordemAsc: false,
+        statusMap: {},
+        stats: {running: 0, queued: 0, max_parallel: 5},
+        pendencias: {prazo: [], despacho: [], juntada: []},
+        prazosCalendarPendentes: 0,
+
+        async init() {
+            await this.recarregar();
+            await this.atualizarStatus();
+            setInterval(() => this.atualizarStatus(), 3000);
+        },
+
+        async recarregar() {
+            const url = '/api/pajs' + (this.mostrarArquivados ? '?arquivados=1' : '');
+            const resp = await fetch(url);
+            const data = await resp.json();
+            this.pajs = data.pajs || [];
+            this.ultimaExecucao = data.ultima_execucao || '';
+            this.totalArquivados = data.total_arquivados || 0;
+            this.pendencias = data.pendencias || {prazo: [], despacho: [], juntada: []};
+            this.prazosCalendarPendentes = data.prazos_calendar_pendentes || 0;
+            this.aplicarFiltros();
+        },
+
+        toggleCategoria(cat) {
+            this.filtroCategoria = (this.filtroCategoria === cat) ? '' : cat;
+            this.aplicarFiltros();
+        },
+
+        limparFiltros() {
+            this.filtroOficio = '';
+            this.filtroForo = '';
+            this.filtroClassif = '';
+            this.busca = '';
+            this.filtroCategoria = '';
+            this.aplicarFiltros();
+        },
+
+        async atualizarStatus() {
+            try {
+                const [rStatus, rStats] = await Promise.all([
+                    fetch('/api/elaborar/status'),
+                    fetch('/api/elaborar/stats'),
+                ]);
+                this.statusMap = await rStatus.json();
+                this.stats = await rStats.json();
+            } catch (e) {}
+        },
+
+        statusOf(pajNorm) {
+            return this.statusMap[pajNorm] || {};
+        },
+
+        // Compara o estado atual do PAJ contra o snapshot guardado em
+        // localStorage na ultima visita ao detalhe. Retorna contagens de
+        // novidade (movs e anexos) + flag agregada `tem`. PAJs nunca
+        // visitados tambem contam como `tem` (snapshot inexistente).
+        novidadesDe(paj) {
+            const snap = this.lerSnapshotPaj(paj.paj_norm);
+            if (!snap) {
+                return { movs: 0, anexos: 0, tem: true, novo: true };
+            }
+            const movsNovas = Math.max(0, (paj.max_seq_mov || 0) - (snap.max_seq || 0));
+            const anexosNovos = Math.max(0, (paj.n_anexos_sisdpu || 0) - (snap.n_anexos || 0));
+            return {
+                movs: movsNovas,
+                anexos: anexosNovos,
+                tem: movsNovas > 0 || anexosNovos > 0,
+                novo: false,
+            };
+        },
+
+        lerSnapshotPaj(pajNorm) {
+            try {
+                const raw = localStorage.getItem('paj_seen_' + pajNorm);
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) { return null; }
+        },
+
+        abrirResumoCaixa(pajNorm) {
+            abrirResumo(pajNorm);
+        },
+
+        formatarData(data) {
+            if (!data) return '—';
+            const p = String(data).split('-');
+            if (p.length !== 3) return data;
+            return `${p[2]}/${p[1]}/${p[0]}`;
+        },
+
+        dataRelativa(data) {
+            if (!data) return '';
+            const d = new Date(data);
+            if (isNaN(d.getTime())) return '';
+            const dias = Math.floor((new Date() - d) / 86400000);
+            if (dias <= 0) return 'hoje';
+            if (dias === 1) return 'há 1 dia';
+            return `há ${dias} dias`;
+        },
+
+        get areasUnicas() {
+            return [...new Set(this.pajs.map(p => p.foro).filter(Boolean))].sort();
+        },
+
+        get classificacoesUnicas() {
+            return [...new Set(this.pajs.map(p => p.classificacao).filter(Boolean))].sort();
+        },
+
+        get oficiosUnicos() {
+            return [...new Set(
+                this.pajs.map(p => this.normalizarOficio(p.oficio)).filter(Boolean)
+            )].sort();
+        },
+
+        // Mapeia o valor cru de `paj.foro` (sem acentos, vindo do parser do
+        // SISDPU) para o rótulo de exibição com ortografia portuguesa correta.
+        // Mantém o valor original quando não houver mapeamento conhecido.
+        formatarArea(area) {
+            if (!area) return '';
+            const mapa = {
+                'civel': 'Cível',
+                'previdenciario': 'Previdenciário',
+                'saude': 'Saúde',
+                'execucao': 'Execução',
+                'criminal': 'Criminal',
+                'familia': 'Família',
+                'tributario': 'Tributário',
+            };
+            return mapa[String(area).toLowerCase()] || area;
+        },
+
+        normalizarOficio(bruto) {
+            if (!bruto) return '';
+            let o = String(bruto);
+            if (/anterior\s*:/i.test(o)) return '';
+            o = o.split('|')[0];
+            o = o.replace(/^\s*[AE]\.\s+/i, '');
+            o = o.replace(/\b0(\d+)º/, '$1º');
+            return o.trim();
+        },
+
+        aplicarFiltros() {
+            let lista = this.pajs;
+            if (this.filtroCategoria) {
+                const ids = this.pendencias[this.filtroCategoria] || [];
+                const set = new Set(ids);
+                lista = lista.filter(p => set.has(p.paj_norm));
+            }
+            if (this.filtroOficio) {
+                lista = lista.filter(p => this.normalizarOficio(p.oficio) === this.filtroOficio);
+            }
+            if (this.filtroForo) {
+                lista = lista.filter(p => p.foro === this.filtroForo);
+            }
+            if (this.filtroClassif) {
+                lista = lista.filter(p => p.classificacao === this.filtroClassif);
+            }
+            if (this.busca) {
+                const q = this.busca.toLowerCase();
+                lista = lista.filter(p =>
+                    (p.paj || '').toLowerCase().includes(q) ||
+                    (p.assistido || '').toLowerCase().includes(q) ||
+                    (p.processo_judicial || '').toLowerCase().includes(q)
+                );
+            }
+            lista = [...lista].sort((a, b) => {
+                let va = a[this.ordemCampo] || '';
+                let vb = b[this.ordemCampo] || '';
+                if (typeof va === 'string') va = va.toLowerCase();
+                if (typeof vb === 'string') vb = vb.toLowerCase();
+                if (va < vb) return this.ordemAsc ? -1 : 1;
+                if (va > vb) return this.ordemAsc ? 1 : -1;
+                return 0;
+            });
+            this.pajsFiltrados = lista;
+        },
+
+        ordenarPor(campo) {
+            if (this.ordemCampo === campo) {
+                this.ordemAsc = !this.ordemAsc;
+            } else {
+                this.ordemCampo = campo;
+                this.ordemAsc = true;
+            }
+            this.aplicarFiltros();
+        },
+
+        iconOrdem(campo) {
+            if (this.ordemCampo !== campo) return '';
+            return this.ordemAsc ? '▲' : '▼';
+        },
+
+        areaBadge(area) {
+            if (!area) return 'badge-ghost';
+            const a = area.toLowerCase();
+            if (a === 'criminal') return 'badge-error';
+            if (a === 'civel') return 'badge-info';
+            if (a === 'previdenciario') return 'badge-warning';
+            if (a === 'saude') return 'badge-success';
+            if (a === 'execucao') return 'badge-accent';
+            return 'badge-ghost';
+        },
+
+        classifBadge(classif) {
+            if (!classif) return 'badge-ghost';
+            const c = classif.toUpperCase();
+            if (c.includes('CRIMINAL')) return 'badge-error';
+            if (c.includes('CIVEL')) return 'badge-info';
+            if (c.includes('PREVIDENCI')) return 'badge-warning';
+            if (c.includes('SAUDE') || c.includes('SAÚDE')) return 'badge-success';
+            if (c.includes('EXECUCAO') || c.includes('EXECUÇÃO')) return 'badge-accent';
+            if (c.includes('ARQUIVADO')) return 'badge-ghost';
+            return 'badge-neutral';
+        }
+    };
+}
+</script>
+{% endblock %}
