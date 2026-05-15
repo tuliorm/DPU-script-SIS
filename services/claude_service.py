@@ -41,7 +41,7 @@ async def elaborar_peca(paj_norm: str) -> AsyncGenerator[str, None]:
         "--permission-mode", "bypassPermissions",
     ]
 
-    yield f"[dpuscript-ui] Elaborando peca para PAJ {paj_norm}...\n"
+    yield f"[DPU-script-SIS] Elaborando peca para PAJ {paj_norm}...\n"
 
     q: queue.Queue[str | None] = queue.Queue()
 
@@ -82,7 +82,7 @@ async def elaborar_peca(paj_norm: str) -> AsyncGenerator[str, None]:
                         if result_text:
                             q.put(f"\n\n{result_text}")
                         session_id = event.get("session_id", "")
-                        q.put(f"\n\n[dpuscript-ui] Concluido (session={session_id[:8]})\n")
+                        q.put(f"\n\n[DPU-script-SIS] Concluido (session={session_id[:8]})\n")
                 except json.JSONDecodeError:
                     q.put(text + "\n")
 

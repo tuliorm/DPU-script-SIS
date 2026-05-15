@@ -639,6 +639,8 @@ async def _processar_paj(
             movs_antigas=movs_antigas,
             movs_novas=movs_novas,
             assistido=assistido_novo,
+            foro=metadata.get("foro_detectado", "") or "",
+            classificacao=metadata.get("classificacao", "") or "",
         )
         for p in prazos_detectados:
             _append_prazo(p)

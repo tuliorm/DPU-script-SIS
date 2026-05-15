@@ -1,5 +1,71 @@
 /* oficio-geral-ui — utilidades globais */
 
+/* Watchlist toggle — usado pelo paj_detail.html como x-data="watchlistToggle('PAJ-...')".
+   Verifica se o PAJ esta na watchlist e expoe acoes adicionar/remover. */
+function watchlistToggle(pajNorm) {
+    return {
+        watched: false,
+        item: null,
+        loading: false,
+
+        async init() {
+            await this.refresh();
+        },
+
+        async refresh() {
+            try {
+                const r = await fetch('/api/watchlist/check/' + encodeURIComponent(pajNorm));
+                const data = await r.json();
+                this.watched = !!data.watched;
+                this.item = data.item || null;
+            } catch (e) {
+                this.watched = false;
+                this.item = null;
+            }
+        },
+
+        async adicionar() {
+            this.loading = true;
+            try {
+                const r = await fetch('/api/watchlist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paj_norm: pajNorm, motivo: '' }),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    showToast('Erro: ' + (err.detail || 'falha ao adicionar'), 'error');
+                    return;
+                }
+                showToast('Adicionado à watchlist', 'success');
+                await this.refresh();
+            } catch (e) {
+                showToast('Falha de rede', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async remover() {
+            if (!confirm('Remover ' + pajNorm + ' da watchlist?')) return;
+            this.loading = true;
+            try {
+                const r = await fetch('/api/watchlist/' + encodeURIComponent(pajNorm), { method: 'DELETE' });
+                if (!r.ok) {
+                    showToast('Erro ao remover', 'error');
+                    return;
+                }
+                showToast('Removido da watchlist', 'info');
+                await this.refresh();
+            } catch (e) {
+                showToast('Falha de rede', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+    };
+}
+
 function showToast(msg, type) {
     type = type || 'info';
     const container = document.getElementById('toast-container');

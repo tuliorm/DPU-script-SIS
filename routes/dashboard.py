@@ -4,8 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from config import PAJS_DIR
-from services.paj_service import listar_pajs, classificar_pendencias
-from services.calendar_service import contar_pendentes as contar_prazos_pendentes
+from services.paj_service import listar_pajs
 
 router = APIRouter()
 
@@ -45,23 +44,8 @@ async def api_pajs(arquivados: int = 0):
             ultima_execucao = _dt.datetime.fromtimestamp(max(mtimes)).isoformat()
     except Exception:
         pass
-    # Categorias "Precisa acao" (rodadas so em cima dos ATIVOS, nao arquivados)
-    pajs_ativos = pajs if not arquivados else [p for p in pajs if p.get("em_caixa_atual") is not False]
-    try:
-        pendencias = classificar_pendencias(pajs_ativos)
-    except Exception:
-        pendencias = {"prazo": [], "despacho": [], "juntada": []}
-
-    # Prazos pendentes de envio ao Google Calendar (JSONL detectado pelo sync)
-    try:
-        prazos_calendar = contar_prazos_pendentes()
-    except Exception:
-        prazos_calendar = 0
-
     return {
         "pajs": pajs,
         "ultima_execucao": ultima_execucao,
         "total_arquivados": total_arquivados,
-        "pendencias": pendencias,
-        "prazos_calendar_pendentes": prazos_calendar,
     }

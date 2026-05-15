@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dpuscript-ui",
+      "name": "DPU-script-SIS",
       "runtimeExecutable": ".venv\\Scripts\\python.exe",
       "runtimeArgs": ["app.py"],
       "port": 8001

@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}Pipeline{% endblock %}
+
+{% block content_class %}flex flex-col flex-1 p-0{% endblock %}
+
+{% block head %}
+<style>
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv11"; }
+  .log-terminal {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    max-height: 60vh;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .log-line { padding: 0; }
+  .log-line.log-info { color: #79c0ff; }
+  .log-line.log-warn { color: #ffa657; }
+  .log-line.log-erro { color: #ff7b72; }
+  .log-line.log-fim { color: #7ee787; font-weight: 600; }
+  .log-line.log-sync { color: #d2a8ff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="pipelineMonitor()" x-init="init()" x-cloak class="flex flex-col flex-1">
+
+  <!-- Banner de ambiente -->
+  {% if ambiente and ambiente.avisos %}
+  <div class="px-8 pt-5">
+    <div class="alert alert-warning">
+      <div>
+        <strong class="text-sm">Ambiente:</strong>
+        <ul class="text-xs list-disc ml-5 mt-1">
+          {% for aviso in ambiente.avisos %}
+          <li>{{ aviso }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Top bar -->
+  <div class="px-8 pt-6 pb-4 flex items-start gap-6">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-baseline gap-3">
+        <h1 class="text-3xl font-semibold tracking-tight">Pipeline</h1>
+        <span class="badge badge-lg" :class="statusBadgeClass" x-text="statusLabel"></span>
+      </div>
+      <div class="text-xs text-base-content/50 mt-1">
+        Acompanhamento da sincronização SISDPU em tempo real e histórico de execuções.
+        <span x-show="state.atualizado_em">
+          — atualizado: <span class="font-mono" x-text="formatTime(state.atualizado_em)"></span>
+        </span>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-sm btn-primary"
+              @click="rodarSync()"
+              :disabled="state.status === 'rodando'">
+        Rodar sync
+      </button>
+      <button class="btn btn-sm btn-ghost" @click="fetchAll()">Recarregar</button>
+    </div>
+  </div>
+
+  <!-- Tabs: Log ao vivo / Histórico -->
+  <div class="px-8 pb-8 flex-1 flex flex-col">
+    <div role="tablist" class="tabs tabs-bordered mb-4">
+      <a role="tab" class="tab" :class="tab === 'live' ? 'tab-active' : ''" @click="tab = 'live'">
+        Log ao vivo
+        <span class="badge badge-ghost badge-xs ml-1" x-text="log.linhas ? log.linhas.length : 0"></span>
+      </a>
+      <a role="tab" class="tab" :class="tab === 'runs' ? 'tab-active' : ''" @click="tab = 'runs'">
+        Histórico
+        <span class="badge badge-ghost badge-xs ml-1" x-text="runs.length"></span>
+      </a>
+    </div>
+
+    <!-- Log ao vivo -->
+    <div x-show="tab === 'live'">
+      <div x-show="!log.linhas || log.linhas.length === 0" class="alert">
+        Nenhum log encontrado em <span class="font-mono ml-1" x-text="log.caminho || 'logs/app.log'"></span>.
+      </div>
+      <div x-show="log.linhas && log.linhas.length > 0">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-xs text-base-content/50">
+            <span class="font-mono" x-text="log.caminho || ''"></span>
+            <span class="ml-2">— <span class="tnum" x-text="log.tamanho || 0"></span> linhas (mostrando últimas <span class="tnum" x-text="log.linhas?.length || 0"></span>)</span>
+          </div>
+          <label class="label cursor-pointer gap-2">
+            <input type="checkbox" class="toggle toggle-xs" x-model="autoScroll">
+            <span class="text-xs">auto-scroll</span>
+          </label>
+        </div>
+        <div class="log-terminal" x-ref="terminal">
+          <template x-for="(linha, i) in (log.linhas || [])" :key="i">
+            <div class="log-line" :class="classifyLine(linha)" x-text="linha"></div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Histórico -->
+    <div x-show="tab === 'runs'">
+      <div x-show="runs.length === 0" class="alert">
+        Nenhum log rotacionado encontrado. Logs antigos aparecem aqui após a rotação diária do TimedRotatingFileHandler.
+      </div>
+      <div class="overflow-x-auto" x-show="runs.length > 0">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <th>Data</th>
+              <th>Arquivo</th>
+              <th class="text-right">Linhas</th>
+              <th class="text-right">Tamanho</th>
+              <th>Resumo</th>
+              <th class="text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="run in runs" :key="run.nome">
+              <tr class="hover:bg-base-300/30">
+                <td class="text-sm whitespace-nowrap" x-text="formatDate(run.data)"></td>
+                <td class="font-mono text-xs" x-text="run.nome"></td>
+                <td class="text-right tnum text-sm" x-text="run.tamanho_linhas"></td>
+                <td class="text-right tnum text-sm" x-text="formatSize(run.tamanho_bytes)"></td>
+                <td class="text-xs text-base-content/70 truncate max-w-md" x-text="run.resumo || '—'"></td>
+                <td class="text-right">
+                  <button class="btn btn-ghost btn-xs" @click="abrirRun(run.nome)">Abrir</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: log histórico -->
+  <dialog id="run-modal" class="modal">
+    <div class="modal-box w-11/12 max-w-5xl">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-lg">Log: <span class="font-mono text-sm" x-text="runAtual.nome || ''"></span></h3>
+        <form method="dialog"><button class="btn btn-sm btn-ghost">X</button></form>
+      </div>
+      <div class="text-xs text-base-content/50 mb-2">
+        <span class="font-mono" x-text="runAtual.caminho || ''"></span>
+        <span class="ml-2" x-show="runAtual.total_linhas">— <span class="tnum" x-text="runAtual.total_linhas"></span> linhas</span>
+      </div>
+      <div class="log-terminal">
+        <template x-for="(linha, i) in (runAtual.linhas || [])" :key="i">
+          <div class="log-line" :class="classifyLine(linha)" x-text="linha"></div>
+        </template>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+  </dialog>
+
+  {% include "partials/sync_modal.html" %}
+
+</div>
+
+<script>
+function pipelineMonitor() {
+  return {
+    state: { status: 'parado', atualizado_em: null },
+    log: { linhas: [], caminho: null, tamanho: 0 },
+    runs: [],
+    runAtual: {},
+    tab: 'live',
+    autoScroll: true,
+    _intervalId: null,
+
+    async init() {
+      await this.fetchAll();
+      this._intervalId = setInterval(() => this.fetchAll(), 3000);
+    },
+
+    async fetchAll() {
+      try {
+        const [sState, sLog, sRuns] = await Promise.all([
+          fetch('/api/pipeline/state'),
+          fetch('/api/pipeline/log'),
+          fetch('/api/pipeline/runs'),
+        ]);
+        this.state = await sState.json();
+        const newLog = await sLog.json();
+        const cresceu = (newLog.linhas?.length || 0) > (this.log.linhas?.length || 0);
+        this.log = newLog;
+        const r = await sRuns.json();
+        this.runs = r.runs || [];
+
+        if (cresceu && this.autoScroll && this.tab === 'live') {
+          this.$nextTick(() => {
+            const el = this.$refs.terminal;
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        }
+      } catch (e) {
+        // silencia
+      }
+    },
+
+    async abrirRun(nome) {
+      try {
+        const r = await fetch('/api/pipeline/runs/' + encodeURIComponent(nome));
+        this.runAtual = await r.json();
+        document.getElementById('run-modal').showModal();
+      } catch (e) {
+        alert('Erro ao carregar log: ' + e.message);
+      }
+    },
+
+    rodarSync() {
+      // Reusa o sync_modal e a funcao global sincronizarCaixa() definida em app.js
+      if (typeof sincronizarCaixa === 'function') {
+        sincronizarCaixa(true);
+      } else {
+        alert('Função de sincronização não encontrada — recarregue a página.');
+      }
+    },
+
+    classifyLine(linha) {
+      if (!linha) return '';
+      const up = linha.toUpperCase();
+      if (up.includes('FIM') || up.includes('CONCLUI')) return 'log-fim';
+      if (up.includes('[ERRO') || up.includes('ERROR') || up.includes('FALHA') || up.includes('FATAL')) return 'log-erro';
+      if (up.includes('WARN')) return 'log-warn';
+      if (up.includes('SYNC') || up.includes('SISDPU') || up.includes('PAJ-')) return 'log-sync';
+      if (up.includes('INFO')) return 'log-info';
+      return '';
+    },
+
+    get statusLabel() {
+      const s = this.state.status;
+      if (s === 'rodando') return 'rodando';
+      if (s === 'parado') return 'parado';
+      return s || '—';
+    },
+
+    get statusBadgeClass() {
+      const s = this.state.status;
+      if (s === 'rodando') return 'badge-warning animate-pulse';
+      return 'badge-ghost';
+    },
+
+    formatTime(iso) {
+      if (!iso) return '';
+      try { return new Date(iso).toLocaleTimeString('pt-BR'); }
+      catch { return iso; }
+    },
+    formatDate(iso) {
+      if (!iso) return '';
+      try {
+        const d = new Date(iso);
+        return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+      } catch { return iso; }
+    },
+    formatSize(bytes) {
+      if (!bytes) return '0 B';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes/1024).toFixed(1) + ' KB';
+      return (bytes/1024/1024).toFixed(1) + ' MB';
+    },
+  };
+}
+</script>
+{% endblock %}

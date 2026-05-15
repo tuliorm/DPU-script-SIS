@@ -84,3 +84,17 @@ def append_prazo(prazo: dict) -> None:
     PAJS_DIR.mkdir(parents=True, exist_ok=True)
     with open(JSONL, "a", encoding="utf-8") as f:
         f.write(json.dumps(prazo, ensure_ascii=False) + "\n")
+
+
+def remover_prazo(prazo_id: str) -> bool:
+    """Remove definitivamente um prazo do JSONL. Retorna False se nao achou.
+
+    Diferente de marcar_processado() (que mantem o registro com status="enviado"),
+    aqui apagamos a linha — usado quando o defensor marca como cumprido na UI
+    (controle leve, sem historico)."""
+    todos = _ler_todos()
+    novo = [d for d in todos if d.get("id") != prazo_id]
+    if len(novo) == len(todos):
+        return False
+    _regravar(novo)
+    return True

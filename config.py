@@ -9,7 +9,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 OFICIO_GERAL = Path(os.getenv(
     "OFICIO_GERAL",
-    r"C:\Users\tulio.rmartins\Desktop\Claude\Ofício Geral",
+    str(Path.home() / "Desktop" / "Ofício Geral"),
 ))
 PAJS_DIR = OFICIO_GERAL / "PAJs"
 PECAS_FEITAS_DIR = OFICIO_GERAL / "Peças Feitas"

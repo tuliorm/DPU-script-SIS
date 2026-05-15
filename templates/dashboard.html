@@ -81,10 +81,6 @@
             <span x-text="stats.queued"></span> em fila
           </span>
         </div>
-        <span class="badge badge-info badge-sm gap-1" x-show="prazosCalendarPendentes > 0">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"></path></svg>
-          <strong x-text="prazosCalendarPendentes"></strong> prazo(s) pendentes no Calendar
-        </span>
       </div>
     </div>
 
@@ -127,112 +123,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Action Cards -->
-  <section class="px-8 pb-5">
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-
-      <!-- Prazo em andamento -->
-      <button type="button"
-              class="action-card group text-left rounded-xl px-4 py-3 border relative overflow-hidden"
-              :class="filtroCategoria === 'prazo'
-                ? 'bg-error/10 border-error/60 ring-2 ring-error/50'
-                : 'bg-base-300 border-base-content/5 hover:border-error/30'"
-              @click="toggleCategoria('prazo')">
-        <div class="absolute top-2.5 right-2.5 transition-opacity" :class="filtroCategoria === 'prazo' ? 'opacity-100' : 'opacity-0'">
-          <div class="w-4 h-4 rounded-full bg-error flex items-center justify-center">
-            <svg class="w-2.5 h-2.5 text-error-content" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m5 12 5 5L20 7"></path></svg>
-          </div>
-        </div>
-        <div class="flex items-center gap-2 mb-1.5">
-          <div class="w-6 h-6 rounded-md bg-error/15 flex items-center justify-center">
-            <svg class="w-3.5 h-3.5 text-error" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"></path></svg>
-          </div>
-          <span class="text-[10px] font-semibold tracking-[0.14em] uppercase text-error">Prazo em andamento</span>
-          <span class="ml-auto w-2 h-2 rounded-full bg-error dot-pulse" x-show="pendencias.prazo.length > 0"></span>
-          <span class="ml-auto w-2 h-2 rounded-full bg-error/30" x-show="pendencias.prazo.length === 0"></span>
-        </div>
-        <div class="flex items-baseline gap-2">
-          <div class="text-5xl font-semibold tnum leading-none"
-               :class="pendencias.prazo.length > 0 ? 'text-error' : 'text-base-content/25'"
-               x-text="pendencias.prazo.length"></div>
-        </div>
-        <div class="mt-1.5 text-xs text-base-content/60 leading-snug">Intimações recentes sem resposta</div>
-        <div class="mt-2 pt-2 border-t border-base-content/5 flex justify-end text-[11px]">
-          <span class="text-error/80 font-medium inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            filtrar <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6 19.5 12l-6 6M19.5 12H4.5"></path></svg>
-          </span>
-        </div>
-      </button>
-
-      <!-- Despacho novo -->
-      <button type="button"
-              class="action-card group text-left rounded-xl px-4 py-3 border relative overflow-hidden"
-              :class="filtroCategoria === 'despacho'
-                ? 'bg-warning/10 border-warning/60 ring-2 ring-warning/50'
-                : 'bg-base-300 border-base-content/5 hover:border-warning/30'"
-              @click="toggleCategoria('despacho')">
-        <div class="absolute top-2.5 right-2.5 transition-opacity" :class="filtroCategoria === 'despacho' ? 'opacity-100' : 'opacity-0'">
-          <div class="w-4 h-4 rounded-full bg-warning flex items-center justify-center">
-            <svg class="w-2.5 h-2.5 text-warning-content" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m5 12 5 5L20 7"></path></svg>
-          </div>
-        </div>
-        <div class="flex items-center gap-2 mb-1.5">
-          <div class="w-6 h-6 rounded-md bg-warning/15 flex items-center justify-center">
-            <svg class="w-3.5 h-3.5 text-warning" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h3m3-12H6a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 6 22.5h12a1.5 1.5 0 0 0 1.5-1.5V9L15 4.5Zm0 0V9h4.5"></path></svg>
-          </div>
-          <span class="text-[10px] font-semibold tracking-[0.14em] uppercase text-warning">Despacho novo</span>
-          <span class="ml-auto w-2 h-2 rounded-full" :class="pendencias.despacho.length > 0 ? 'bg-warning dot-pulse' : 'bg-warning/30'"></span>
-        </div>
-        <div class="flex items-baseline gap-2">
-          <div class="text-5xl font-semibold tnum leading-none"
-               :class="pendencias.despacho.length > 0 ? 'text-warning' : 'text-base-content/25'"
-               x-text="pendencias.despacho.length"></div>
-          <div class="text-xs pb-0.5 text-base-content/40" x-show="pendencias.despacho.length === 0">nenhum</div>
-        </div>
-        <div class="mt-1.5 text-xs text-base-content/60 leading-snug">Decisões/despachos recentes sem peça posterior</div>
-        <div class="mt-2 pt-2 border-t border-base-content/5 flex justify-end text-[11px]">
-          <span class="text-warning/80 font-medium inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            filtrar <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6 19.5 12l-6 6M19.5 12H4.5"></path></svg>
-          </span>
-        </div>
-      </button>
-
-      <!-- Aguardando juntada -->
-      <button type="button"
-              class="action-card group text-left rounded-xl px-4 py-3 border relative overflow-hidden"
-              :class="filtroCategoria === 'juntada'
-                ? 'bg-info/10 border-info/60 ring-2 ring-info/50'
-                : 'bg-base-300 border-base-content/5 hover:border-info/30'"
-              @click="toggleCategoria('juntada')">
-        <div class="absolute top-2.5 right-2.5 transition-opacity" :class="filtroCategoria === 'juntada' ? 'opacity-100' : 'opacity-0'">
-          <div class="w-4 h-4 rounded-full bg-info flex items-center justify-center">
-            <svg class="w-2.5 h-2.5 text-info-content" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m5 12 5 5L20 7"></path></svg>
-          </div>
-        </div>
-        <div class="flex items-center gap-2 mb-1.5">
-          <div class="w-6 h-6 rounded-md bg-info/15 flex items-center justify-center">
-            <svg class="w-3.5 h-3.5 text-info" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 13.5h9m-9 3h6m1.5-15h-9A1.5 1.5 0 0 0 4.5 3v18a1.5 1.5 0 0 0 1.5 1.5h12A1.5 1.5 0 0 0 19.5 21V9L13.5 1.5Zm0 0V9H19.5"></path></svg>
-          </div>
-          <span class="text-[10px] font-semibold tracking-[0.14em] uppercase text-info">Aguardando juntada</span>
-          <span class="ml-auto w-2 h-2 rounded-full" :class="pendencias.juntada.length > 0 ? 'bg-info dot-pulse' : 'bg-info/30'"></span>
-        </div>
-        <div class="flex items-baseline gap-2">
-          <div class="text-5xl font-semibold tnum leading-none"
-               :class="pendencias.juntada.length > 0 ? 'text-info' : 'text-base-content/25'"
-               x-text="pendencias.juntada.length"></div>
-          <div class="text-xs pb-0.5 text-base-content/40" x-show="pendencias.juntada.length === 0">nenhum</div>
-        </div>
-        <div class="mt-1.5 text-xs text-base-content/60 leading-snug">Peça gerada, sem mov. de juntada</div>
-        <div class="mt-2 pt-2 border-t border-base-content/5 flex justify-end text-[11px]">
-          <span class="text-info/80 font-medium inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            filtrar <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6 19.5 12l-6 6M19.5 12H4.5"></path></svg>
-          </span>
-        </div>
-      </button>
-
-    </div>
-  </section>
 
   <!-- Filter Bar -->
   <section class="px-8 pb-4">
@@ -287,7 +177,7 @@
       <!-- Limpar -->
       <button type="button"
               class="btn btn-ghost btn-sm normal-case text-base-content/60 hover:text-base-content gap-1.5"
-              x-show="filtroOficio || filtroForo || filtroClassif || busca || filtroCategoria"
+              x-show="filtroOficio || filtroForo || filtroClassif || busca"
               @click="limparFiltros()" x-transition.opacity>
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"></path></svg>
         Limpar
@@ -296,27 +186,9 @@
 
     <!-- Chips de filtros ativos -->
     <div class="flex items-center gap-2 mt-2.5 text-xs text-base-content/50 min-h-[20px] flex-wrap"
-         x-show="filtroCategoria || filtroOficio || filtroForo || filtroClassif || busca"
+         x-show="filtroOficio || filtroForo || filtroClassif || busca"
          x-transition.opacity>
       <span>Filtrando por:</span>
-      <template x-if="filtroCategoria === 'prazo'">
-        <span class="badge badge-sm bg-error/15 text-error border-error/30 gap-1">
-          <span class="w-1.5 h-1.5 rounded-full bg-error"></span> Prazo em andamento
-          <button @click.stop="filtroCategoria = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
-        </span>
-      </template>
-      <template x-if="filtroCategoria === 'despacho'">
-        <span class="badge badge-sm bg-warning/15 text-warning border-warning/30 gap-1">
-          <span class="w-1.5 h-1.5 rounded-full bg-warning"></span> Despacho novo
-          <button @click.stop="filtroCategoria = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
-        </span>
-      </template>
-      <template x-if="filtroCategoria === 'juntada'">
-        <span class="badge badge-sm bg-info/15 text-info border-info/30 gap-1">
-          <span class="w-1.5 h-1.5 rounded-full bg-info"></span> Aguardando juntada
-          <button @click.stop="filtroCategoria = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
-        </span>
-      </template>
       <template x-if="filtroForo">
         <span class="badge badge-sm badge-ghost gap-1">
           <span x-text="filtroForo"></span>
@@ -365,11 +237,11 @@
     </div>
 
     <div class="bg-base-300 rounded-xl border border-base-content/5 flex-1 overflow-hidden flex flex-col">
-      <div class="list-scroll overflow-y-auto divide-y divide-base-content/5" style="max-height: calc(100vh - 430px); min-height: 280px;">
+      <div class="list-scroll overflow-y-auto divide-y divide-base-content/5 flex-1 min-h-0">
 
         <template x-for="paj in pajsFiltrados" :key="paj.paj_norm">
           <div class="paj-row px-4 py-3 flex items-center gap-3 group cursor-pointer"
-               :class="pendencias.prazo.includes(paj.paj_norm) ? 'border-l-2 border-l-error/60' : (novidadesDe(paj).tem ? 'border-l-2 border-l-info/70' : 'border-l-2 border-l-transparent')"
+               :class="novidadesDe(paj).tem ? 'border-l-2 border-l-info/70' : 'border-l-2 border-l-transparent'"
                @click="window.location.href = '/paj/' + paj.paj_norm">
 
             <!-- Número do PAJ -->
@@ -531,14 +403,11 @@ function dashboardApp() {
         filtroOficio: '',
         filtroForo: '',
         filtroClassif: '',
-        filtroCategoria: '',
         busca: '',
         ordemCampo: 'data_caixa',
         ordemAsc: false,
         statusMap: {},
         stats: {running: 0, queued: 0, max_parallel: 5},
-        pendencias: {prazo: [], despacho: [], juntada: []},
-        prazosCalendarPendentes: 0,
 
         async init() {
             await this.recarregar();
@@ -553,13 +422,6 @@ function dashboardApp() {
             this.pajs = data.pajs || [];
             this.ultimaExecucao = data.ultima_execucao || '';
             this.totalArquivados = data.total_arquivados || 0;
-            this.pendencias = data.pendencias || {prazo: [], despacho: [], juntada: []};
-            this.prazosCalendarPendentes = data.prazos_calendar_pendentes || 0;
-            this.aplicarFiltros();
-        },
-
-        toggleCategoria(cat) {
-            this.filtroCategoria = (this.filtroCategoria === cat) ? '' : cat;
             this.aplicarFiltros();
         },
 
@@ -568,7 +430,6 @@ function dashboardApp() {
             this.filtroForo = '';
             this.filtroClassif = '';
             this.busca = '';
-            this.filtroCategoria = '';
             this.aplicarFiltros();
         },
 
@@ -677,11 +538,6 @@ function dashboardApp() {
 
         aplicarFiltros() {
             let lista = this.pajs;
-            if (this.filtroCategoria) {
-                const ids = this.pendencias[this.filtroCategoria] || [];
-                const set = new Set(ids);
-                lista = lista.filter(p => set.has(p.paj_norm));
-            }
             if (this.filtroOficio) {
                 lista = lista.filter(p => this.normalizarOficio(p.oficio) === this.filtroOficio);
             }

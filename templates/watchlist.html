@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}Watchlist{% endblock %}
+
+{% block content_class %}flex flex-col flex-1 p-0{% endblock %}
+
+{% block head %}
+<style>
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv11"; }
+  .truncate-1 {
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .wl-row { transition: background-color .12s ease; }
+  .wl-row:hover { background-color: hsl(var(--b3) / 0.75); }
+  .wl-row.encerrado { opacity: 0.55; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="watchlistApp()" x-init="init()" x-cloak class="flex flex-col flex-1">
+
+  <!-- Banner de ambiente -->
+  {% if ambiente and ambiente.avisos %}
+  <div class="px-8 pt-5">
+    <div class="alert alert-warning">
+      <div>
+        <strong class="text-sm">Ambiente:</strong>
+        <ul class="text-xs list-disc ml-5 mt-1">
+          {% for aviso in ambiente.avisos %}
+          <li>{{ aviso }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Top bar -->
+  <div class="px-8 pt-6 pb-4 flex items-start gap-6">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-baseline gap-3">
+        <h1 class="text-3xl font-semibold tracking-tight">Watchlist</h1>
+        <span class="text-base-content/50 tnum text-sm">
+          <span x-text="stats.total || 0"></span> item(s)
+        </span>
+      </div>
+      <div class="text-xs text-base-content/50 mt-1">
+        Lista de PAJs marcados pelo defensor para acompanhamento prioritário.
+        Funciona como uma camada de "minha seleção" sobre o painel geral.
+        <span x-show="stats.atualizada_em">— última alteração: <span class="font-mono" x-text="formatTime(stats.atualizada_em)"></span></span>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-sm btn-primary" @click="abrirModalNovo()">+ Adicionar PAJ</button>
+      <button class="btn btn-sm btn-ghost" @click="recarregar()">Recarregar</button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="px-8 pb-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+    <div class="bg-base-200 rounded-lg border border-base-300 p-4">
+      <div class="text-xs text-base-content/50 uppercase tracking-wide">Total</div>
+      <div class="text-2xl font-bold tnum mt-1" x-text="stats.total || 0"></div>
+    </div>
+    <div class="bg-base-200 rounded-lg border border-base-300 p-4">
+      <div class="text-xs text-base-content/50 uppercase tracking-wide">Ativos</div>
+      <div class="text-2xl font-bold tnum mt-1 text-warning" x-text="stats.ativo || 0"></div>
+    </div>
+    <div class="bg-base-200 rounded-lg border border-base-300 p-4">
+      <div class="text-xs text-base-content/50 uppercase tracking-wide">Encerrados</div>
+      <div class="text-2xl font-bold tnum mt-1 text-base-content/40" x-text="stats.encerrado || 0"></div>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="px-8 pb-8 flex-1">
+    <div class="bg-base-200 rounded-lg border border-base-300 overflow-hidden">
+      <template x-if="itens.length === 0">
+        <div class="p-8 text-center text-base-content/50">
+          Watchlist vazia. Clique em <span class="font-semibold">"+ Adicionar PAJ"</span> ou abra um PAJ
+          no dashboard e use o botão <span class="font-semibold">"Acompanhar"</span> para marcá-lo.
+        </div>
+      </template>
+
+      <template x-if="itens.length > 0">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <th>PAJ</th>
+              <th>Motivo</th>
+              <th>Status</th>
+              <th class="text-right">Adicionado</th>
+              <th class="text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="item in itens" :key="item.paj_norm">
+              <tr class="wl-row" :class="item.status === 'encerrado' ? 'encerrado' : ''">
+                <td class="font-mono text-xs whitespace-nowrap">
+                  <a :href="'/paj/' + item.paj_norm" class="link link-hover" x-text="item.paj_norm"></a>
+                </td>
+                <td class="text-sm max-w-[26rem]">
+                  <div class="truncate-1" :title="item.motivo" x-text="item.motivo || '—'"></div>
+                </td>
+                <td>
+                  <template x-if="item.status === 'ativo'">
+                    <span class="badge badge-warning badge-sm">ativo</span>
+                  </template>
+                  <template x-if="item.status === 'encerrado'">
+                    <span class="badge badge-ghost badge-sm">encerrado</span>
+                  </template>
+                </td>
+                <td class="text-right text-xs text-base-content/60 whitespace-nowrap" x-text="formatTime(item.adicionado_em)"></td>
+                <td class="text-right whitespace-nowrap">
+                  <template x-if="item.status === 'ativo'">
+                    <button class="btn btn-xs btn-ghost"
+                            title="Marcar como encerrado (mantém histórico)"
+                            @click="encerrar(item)">Encerrar</button>
+                  </template>
+                  <template x-if="item.status === 'encerrado'">
+                    <button class="btn btn-xs btn-ghost"
+                            title="Voltar para ativo"
+                            @click="reativar(item)">Reativar</button>
+                  </template>
+                  <button class="btn btn-xs btn-ghost text-error"
+                          title="Remover definitivamente da watchlist"
+                          @click="remover(item)">Remover</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </template>
+    </div>
+  </div>
+
+  <!-- Modal: adicionar -->
+  <dialog id="modal-novo-wl" class="modal">
+    <div class="modal-box max-w-lg">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-lg">Adicionar PAJ à watchlist</h3>
+        <form method="dialog"><button class="btn btn-sm btn-ghost">X</button></form>
+      </div>
+
+      <form @submit.prevent="salvar()" class="flex flex-col gap-3">
+        <label class="form-control">
+          <span class="label-text text-xs mb-1">PAJ <span class="text-error">*</span></span>
+          <input type="text"
+                 class="input input-bordered input-sm font-mono"
+                 placeholder="PAJ-2026-044-00187"
+                 x-model="novo.paj_norm"
+                 required>
+          <span class="text-[11px] text-base-content/40 mt-1">Formato: PAJ-YYYY-NNN-NNNNN</span>
+        </label>
+
+        <label class="form-control">
+          <span class="label-text text-xs mb-1">Motivo (opcional)</span>
+          <textarea class="textarea textarea-bordered text-sm"
+                    rows="3"
+                    placeholder="Ex: aguardando decisão do agravo, prazo curto, processo prioritário..."
+                    x-model="novo.motivo"></textarea>
+        </label>
+
+        <template x-if="erro">
+          <div class="alert alert-error py-2 text-xs" x-text="erro"></div>
+        </template>
+
+        <div class="flex justify-end gap-2 mt-2">
+          <button type="button" class="btn btn-sm btn-ghost" @click="fecharModalNovo()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary" :disabled="salvando">
+            <span x-show="!salvando">Salvar</span>
+            <span x-show="salvando">Salvando…</span>
+          </button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+  </dialog>
+
+</div>
+
+<script>
+function watchlistApp() {
+  return {
+    itens: [],
+    stats: { total: 0, ativo: 0, encerrado: 0, atualizada_em: null },
+    novo: { paj_norm: '', motivo: '' },
+    salvando: false,
+    erro: '',
+
+    async init() {
+      await this.recarregar();
+    },
+
+    async recarregar() {
+      try {
+        const r = await fetch('/api/watchlist');
+        const data = await r.json();
+        this.itens = data.itens || [];
+        this.stats = data.stats || { total: 0, ativo: 0, encerrado: 0 };
+      } catch (e) {
+        this.itens = [];
+      }
+    },
+
+    abrirModalNovo() {
+      this.novo = { paj_norm: '', motivo: '' };
+      this.erro = '';
+      document.getElementById('modal-novo-wl').showModal();
+    },
+
+    fecharModalNovo() {
+      document.getElementById('modal-novo-wl').close();
+    },
+
+    async salvar() {
+      this.salvando = true;
+      this.erro = '';
+      try {
+        const r = await fetch('/api/watchlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paj_norm: (this.novo.paj_norm || '').trim().toUpperCase(),
+            motivo: (this.novo.motivo || '').trim(),
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          this.erro = err.detail || 'Erro ao salvar.';
+          return;
+        }
+        this.fecharModalNovo();
+        await this.recarregar();
+      } catch (e) {
+        this.erro = 'Falha de rede.';
+      } finally {
+        this.salvando = false;
+      }
+    },
+
+    async encerrar(item) {
+      if (!confirm(`Encerrar acompanhamento de ${item.paj_norm}?`)) return;
+      await fetch('/api/watchlist/' + encodeURIComponent(item.paj_norm) + '/encerrar', { method: 'POST' });
+      await this.recarregar();
+    },
+
+    async reativar(item) {
+      await fetch('/api/watchlist/' + encodeURIComponent(item.paj_norm) + '/reativar', { method: 'POST' });
+      await this.recarregar();
+    },
+
+    async remover(item) {
+      if (!confirm(`Remover ${item.paj_norm} da watchlist? (sem histórico)`)) return;
+      await fetch('/api/watchlist/' + encodeURIComponent(item.paj_norm), { method: 'DELETE' });
+      await this.recarregar();
+    },
+
+    formatTime(iso) {
+      if (!iso) return '—';
+      try {
+        const d = new Date(iso);
+        return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+      } catch { return iso; }
+    },
+  };
+}
+</script>
+{% endblock %}

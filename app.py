@@ -24,7 +24,10 @@ from routes.dashboard import router as dashboard_router
 from routes.docgen import router as docgen_router
 from routes.files import router as files_router
 from routes.paj import router as paj_router
+from routes.pipeline_monitor import router as pipeline_monitor_router
+from routes.prazos import router as prazos_router
 from routes.sync import router as sync_router
+from routes.watchlist import router as watchlist_router
 from services.ambiente_service import verificar_ambiente
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -60,7 +63,7 @@ _configurar_logging()
 # Versao do painel — fonte unica. Usada pelo FastAPI (OpenAPI/docs) e tambem
 # exposta a todos os templates via Jinja globals (renderizada no rodape da
 # sidebar). Para incrementar: mude aqui e so aqui.
-APP_VERSION = "0.3.12"
+APP_VERSION = "0.3.14"
 
 app = FastAPI(title="oficio-geral-ui", version=APP_VERSION)
 app.state.jinja = jinja2.Environment(
@@ -103,6 +106,9 @@ app.include_router(docgen_router)
 app.include_router(sync_router)
 app.include_router(busca_router)
 app.include_router(calendar_router)
+app.include_router(prazos_router)
+app.include_router(watchlist_router)
+app.include_router(pipeline_monitor_router)
 
 # Healthcheck de dependencias externas — expoe em app.state.ambiente pra
 # o dashboard renderizar banner quando algo falta.

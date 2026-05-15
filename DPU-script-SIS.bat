@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  dpuscript-ui — inicia o servidor (se precisar) e abre browser
+rem  DPU-script-SIS — inicia o servidor (se precisar) e abre browser
 rem  Usar: dar duplo clique, ou criar atalho no desktop/barra de tarefas
 rem ============================================================
 
@@ -22,8 +22,8 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 rem Nao esta rodando — inicia em janela separada e abre browser
-echo Iniciando servidor dpuscript-ui...
-start "dpuscript-ui" /MIN "%PYTHON%" "%ROOT%app.py"
+echo Iniciando servidor DPU-script-SIS...
+start "DPU-script-SIS" /MIN "%PYTHON%" "%ROOT%app.py"
 
 rem Aguarda 4s pro servidor subir
 timeout /T 4 /NOBREAK >nul

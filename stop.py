@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Para o servidor dpuscript-ui (le PID file + limpa porta)."""
+"""Para o servidor DPU-script-SIS (le PID file + limpa porta)."""
 
 from __future__ import annotations
 

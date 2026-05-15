@@ -27,3 +27,6 @@ logs/
 
 # Conversas do chat livre — historico local do usuario, nao versionar
 data/
+
+# Claude Code — configuracoes locais especificas da maquina (paths reais, PAJs, etc.)
+.claude/settings.local.json

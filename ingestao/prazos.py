@@ -1,14 +1,16 @@
 """Detector de prazos processuais a partir de movimentacoes do SISDPU.
 
 Compara movimentacoes antes/depois da sync e identifica intimacoes/citacoes
-novas. Para cada uma, tenta extrair um prazo em dias e calcular a data-alvo.
+novas. Para cada uma, tenta extrair um prazo em dias e calcular a data-alvo
+APLICANDO AS REGRAS PROCESSUAIS via `services.prazo_processual` (dias uteis
+no civel/JEF, dias corridos no penal, dobra DPU, recesso forense, etc).
 
 O resultado e' passado ao `services.calendar_service.append_prazo(...)` que
-grava num JSONL. Uma skill Claude posterior (/sync_calendar) le o JSONL e
-cria eventos no Google Calendar via MCP.
+grava num JSONL. Esse JSONL alimenta tanto a aba interna /prazos do painel
+quanto a skill Claude /sync_calendar (Google Calendar).
 
 Heuristicas sao conservadoras — melhor ter falso positivo (usuario descarta
-antes de enviar ao calendar) do que falso negativo (perde prazo).
+antes de enviar) do que falso negativo (perde prazo).
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from __future__ import annotations
 import datetime as dt
 import re
 from collections.abc import Iterable
+
+from services.prazo_processual import Rito, calcular_data_alvo, inferir_rito
 
 
 # Padroes que indicam intimacao/citacao/prazo
@@ -83,6 +87,8 @@ def detectar_prazos_novos(
     movs_antigas: Iterable[dict],
     movs_novas: Iterable[dict],
     assistido: str = "",
+    foro: str = "",
+    classificacao: str = "",
 ) -> list[dict]:
     """Compara movs e retorna lista de prazos novos detectados.
 
@@ -94,7 +100,9 @@ def detectar_prazos_novos(
             "descricao": str,
             "data_mov": "YYYY-MM-DD",
             "prazo_dias": int | None,
-            "data_alvo": "YYYY-MM-DD" | None,
+            "data_alvo": "YYYY-MM-DD",  # calculada via prazo_processual
+            "rito": "civel" | "jef" | "penal" | "administrativo",
+            "em_dobro": bool,
             "assistido": str,
             "fonte_mov_seq": int,
             "status": "pendente",
@@ -122,12 +130,24 @@ def detectar_prazos_novos(
             continue  # so rastreia intimacao/citacao/notificacao
 
         data_mov = _parse_data_br(m.get("data_original") or m.get("data") or "")
-        data_alvo = _extrair_data_alvo_explicita(desc)
-        dias = _extrair_prazo_dias(desc) if data_alvo is None else None
 
+        # Inferencia de rito combina foro/classificacao da PAJ + heuristica
+        # da descricao da movimentacao.
+        rito = inferir_rito(
+            area_paj=classificacao or "",
+            descricao_mov=desc,
+            foro=foro or "",
+        )
+
+        # Tenta extrair data-alvo explicita ("ate dd/mm/aaaa") primeiro;
+        # se nao houver, calcula a partir de prazo_dias + data_mov + rito.
+        data_alvo_explicita = _extrair_data_alvo_explicita(desc)
+        dias = _extrair_prazo_dias(desc) if data_alvo_explicita is None else None
+
+        em_dobro = rito in (Rito.CIVEL, Rito.ADMINISTRATIVO)
+        data_alvo: dt.date | None = data_alvo_explicita
         if data_alvo is None and dias is not None and data_mov is not None:
-            # Dias corridos na primeira versao (refinar com dias uteis depois)
-            data_alvo = data_mov + dt.timedelta(days=dias)
+            data_alvo = calcular_data_alvo(data_mov, dias, rito, em_dobro=em_dobro)
 
         titulo = f"[Prazo {dias}d] {paj_norm}" if dias else f"[Intimacao] {paj_norm}"
         if assistido:
@@ -141,6 +161,8 @@ def detectar_prazos_novos(
             "data_mov": data_mov.isoformat() if data_mov else "",
             "prazo_dias": dias,
             "data_alvo": data_alvo.isoformat() if data_alvo else "",
+            "rito": rito.value,
+            "em_dobro": em_dobro,
             "assistido": assistido,
             "fonte_mov_seq": seq,
             "status": "pendente",

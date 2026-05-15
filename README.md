@@ -1,4 +1,4 @@
-# dpuscript-ui
+# DPU-script-SIS
 
 Interface web para o pipeline **dpuscript** — sistema de monitoramento e elaboração de peças para Defensores Públicos Federais atuantes na TNU e no STJ.
 
@@ -8,13 +8,27 @@ Interface web para o pipeline **dpuscript** — sistema de monitoramento e elabo
 
 ## O que é
 
-O **dpuscript** é um pipeline que:
-1. Autentica no e-Proc TNU e baixa automaticamente as peças dos processos da caixa do Defensor
-2. Classifica cada processo (decisão monocrática, acórdão, vista ao MP, vitória, etc.)
-3. Extrai texto dos PDFs — com OCR automático para documentos escaneados
-4. Gera um prompt otimizado para elaboração de peças via Claude AI
+O **DPU-script-SIS** é um painel web para Defensores/as Públicos/as Federais que usam o **SISDPU**. Centraliza num só lugar: acompanhamento da caixa de entrada, gestão de prazos processuais, controle de peças e elaboração assistida de manifestações via Claude Code.
 
-O **dpuscript-ui** é o painel web que dá visibilidade a esse pipeline: mostra todos os PAJs (Processos de Assistência Jurídica), seu estado de processamento, peças baixadas, classificação automática e facilita o acesso a cada processo para elaboração das peças.
+O sistema tem dois blocos:
+
+### Pipeline de ingestão (botão "Sincronizar caixa")
+
+1. Autentica no SISDPU via Playwright headless usando credenciais do `.env`
+2. Identifica novos PAJs e novas movimentações na caixa do defensor
+3. Baixa peças em PDF e extrai texto — com **OCR automático** (Tesseract) em documentos escaneados
+4. **Detecta prazos processuais** aplicando regras de rito (cível, JEF, penal, administrativo), dobra DPU, dias úteis vs. corridos e recesso forense
+
+### Painel web (FastAPI + DaisyUI/Alpine)
+
+- **Dashboard** com lista de todos os PAJs e filtros por foro, classificação e ofício
+- **Detalhe do PAJ** — movimentações, peças baixadas (com texto extraído), notas pessoais
+- **Prazos** — aba dedicada aos prazos detectados, com integração opcional ao Google Calendar
+- **Watchlist** — PAJs marcados como acompanhamento prioritário, com motivo
+- **Pipeline monitor** — histórico e logs das sincronizações já realizadas
+- **Chat com Claude Code (via CLI, sem API paga)** — elaboração assistida de peças com skills dedicadas + chat livre persistente por PAJ
+- **Busca textual** em movimentações e peças
+- **Geração de DOCX/PDF** via scripts externos do workspace do defensor
 
 ---
 
@@ -32,8 +46,8 @@ O **dpuscript-ui** é o painel web que dá visibilidade a esse pipeline: mostra 
 
 ```bash
 # 1. Clone o repositório
-git clone https://github.com/jppicanco/dpuscript-ui.git
-cd dpuscript-ui
+git clone https://github.com/tuliorm/DPU-script-SIS.git
+cd DPU-script-SIS
 
 # 2. Crie o ambiente virtual
 python -m venv .venv
@@ -68,7 +82,8 @@ copy .env.example .env
 Edite o arquivo `.env`:
 
 ```env
-OFICIO_GERAL=C:\Users\tulio.rmartins\Desktop\Claude\Ofício Geral
+OFICIO_GERAL=C:\Users\<seu_usuario>\Desktop\Ofício Geral
+OFICIO_DESCRICAO=2ª Categoria - DPU/UF
 SISDPU_USERNAME=seu.usuario
 SISDPU_PASSWORD=sua.senha
 ```
@@ -101,7 +116,7 @@ O painel mostra todos os PAJs detectados em `OFICIO_GERAL/PAJs/PAJ-*/`. Para cad
 ## Estrutura
 
 ```
-dpuscript-ui/
+DPU-script-SIS/
 ├── app.py              # FastAPI + Uvicorn
 ├── config.py           # Configurações (lê .env)
 ├── ingestao/           # Pipeline de sincronização da caixa SISDPU
@@ -121,7 +136,7 @@ dpuscript-ui/
 ## Workspace Ofício Geral
 
 Este painel lê os dados da pasta apontada por `OFICIO_GERAL`, que contém:
-- `PAJs/PAJ-YYYY-044-XXXXX/` — uma subpasta por PAJ com `sisdpu.txt`, `metadata.json`, `pecas/`, peças geradas
+- `PAJs/PAJ-YYYY-NNN-XXXXX/` — uma subpasta por PAJ (NNN = código de 3 dígitos da unidade) com `sisdpu.txt`, `metadata.json`, `pecas/`, peças geradas
 - `Peças Feitas/` — peças anteriores do Defensor (usadas como contexto no PROMPT_MAX)
 - `CLAUDE.md` — instruções do Defensor para o Claude Code
 - `gerar_docx.py` e `gerar_peticao.py` — scripts que o botão "Gerar DOCX/PDF" invoca
@@ -139,7 +154,9 @@ Este painel lê os dados da pasta apontada por `OFICIO_GERAL`, que contém:
 
 ## Aviso
 
-Este projeto foi desenvolvido para uso pessoal por um Defensor Público Federal. Ele **não armazena dados de assistidos** — os arquivos de processos ficam apenas na máquina local do Defensor e são ignorados pelo Git. Consulte o `.gitignore` para confirmar o que é e não é versionado.
+Este projeto foi desenvolvido para uso pessoal por um Defensor Público Federal. Cada usuário é responsável, por sua conta e risco, do uso que for feito, sob sua exclusiva responsabilidade. O sistema funciona, mas ainda está em desenvolvimento e testes, por isso erros podem acontecer, sendo igualmente de responsabilidade do próprio usuário.
+
+Ele **não armazena dados de assistidos** — os arquivos de processos ficam apenas na máquina local do Defensor e são ignorados pelo Git. Consulte o `.gitignore` para confirmar o que é e não é versionado.
 
 Contribuições são bem-vindas. Abra uma issue ou PR.
 

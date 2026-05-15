@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block title %}Prazos{% endblock %}
+
+{% block content_class %}flex flex-col flex-1 p-0{% endblock %}
+
+{% block head %}
+<style>
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv11"; }
+  .truncate-1 {
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .prazo-row { transition: background-color .12s ease; }
+  .prazo-row:hover { background-color: hsl(var(--b3) / 0.75); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="prazosApp()" x-init="init()" x-cloak class="flex flex-col flex-1">
+
+  <!-- Banner de ambiente -->
+  {% if ambiente and ambiente.avisos %}
+  <div class="px-8 pt-5">
+    <div class="alert alert-warning">
+      <div>
+        <strong class="text-sm">Ambiente:</strong>
+        <ul class="text-xs list-disc ml-5 mt-1">
+          {% for aviso in ambiente.avisos %}
+          <li>{{ aviso }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Top bar -->
+  <div class="px-8 pt-6 pb-4 flex items-start gap-6">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-baseline gap-3">
+        <h1 class="text-3xl font-semibold tracking-tight">Prazos</h1>
+        <span class="text-base-content/50 tnum text-sm">
+          <span x-text="prazos.length"></span> pendente(s)
+        </span>
+      </div>
+      <div class="text-xs text-base-content/50 mt-1">
+        Apenas prazos judiciais de PAJs ativos na caixa. PAJ concluído ou arquivado some daqui.
+        Adições manuais ficam visíveis até serem cumpridas.
+        <span x-show="hoje">Hoje: <span class="font-mono" x-text="hoje"></span></span>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-sm btn-primary" @click="abrirModalNovo()">+ Adicionar prazo</button>
+      <button class="btn btn-sm btn-ghost" @click="recarregar()">Recarregar</button>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="px-8 pb-8 flex-1">
+    <div class="bg-base-200 rounded-lg border border-base-300 overflow-hidden">
+      <template x-if="prazos.length === 0">
+        <div class="p-8 text-center text-base-content/50">
+          Nenhum prazo pendente no momento.
+        </div>
+      </template>
+
+      <template x-if="prazos.length > 0">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <th>PAJ</th>
+              <th>Assistido</th>
+              <th>Movimentação / Descrição</th>
+              <th>Rito</th>
+              <th class="text-right">Data-alvo</th>
+              <th class="text-right">Dias restantes</th>
+              <th class="text-right">Ação</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="p in prazos" :key="p.id">
+              <tr class="prazo-row">
+                <td class="font-mono text-xs whitespace-nowrap">
+                  <template x-if="ehPajPadrao(p.paj_norm)">
+                    <a :href="'/paj/' + p.paj_norm" class="link link-hover" x-text="p.paj_norm"></a>
+                  </template>
+                  <template x-if="!ehPajPadrao(p.paj_norm)">
+                    <span x-text="p.paj_norm"></span>
+                  </template>
+                </td>
+                <td class="text-sm max-w-[14rem]">
+                  <div class="truncate-1" :title="p.assistido" x-text="p.assistido || '—'"></div>
+                </td>
+                <td class="text-xs text-base-content/80 max-w-[26rem]">
+                  <div class="truncate-1" :title="p.descricao" x-text="p.descricao || ''"></div>
+                </td>
+                <td class="text-xs">
+                  <span class="badge badge-sm" :class="ritoBadge(p.rito)" x-text="ritoLabel(p)"></span>
+                </td>
+                <td class="text-right tnum text-sm whitespace-nowrap" x-text="formatarData(p.data_alvo)"></td>
+                <td class="text-right whitespace-nowrap">
+                  <span class="badge tnum"
+                        :class="badgeRestantes(p.dias_restantes)"
+                        x-text="textoRestantes(p.dias_restantes)"></span>
+                </td>
+                <td class="text-right whitespace-nowrap">
+                  <button class="btn btn-xs btn-ghost text-success"
+                          title="Marcar como cumprido (remove definitivamente)"
+                          @click="cumprirPrazo(p)">
+                    ✓ Cumprido
+                  </button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </template>
+    </div>
+  </div>
+
+  <!-- Modal: novo prazo manual -->
+  <dialog id="modal-novo-prazo" class="modal">
+    <div class="modal-box max-w-lg">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-lg">Adicionar prazo</h3>
+        <form method="dialog"><button class="btn btn-sm btn-ghost">X</button></form>
+      </div>
+
+      <form @submit.prevent="salvarPrazoManual()" class="flex flex-col gap-3">
+        <label class="form-control">
+          <span class="label-text text-xs mb-1">PAJ <span class="text-error">*</span></span>
+          <input type="text"
+                 class="input input-bordered input-sm font-mono"
+                 placeholder="PAJ-2026-044-00187"
+                 x-model="novoPrazo.paj_norm"
+                 required>
+          <span class="text-[11px] text-base-content/40 mt-1">Formato: PAJ-YYYY-NNN-NNNNN</span>
+        </label>
+
+        <label class="form-control">
+          <span class="label-text text-xs mb-1">Assistido (opcional)</span>
+          <input type="text"
+                 class="input input-bordered input-sm"
+                 placeholder="Nome do assistido"
+                 x-model="novoPrazo.assistido">
+        </label>
+
+        <label class="form-control">
+          <span class="label-text text-xs mb-1">Descrição (opcional)</span>
+          <textarea class="textarea textarea-bordered text-sm"
+                    rows="3"
+                    placeholder="Ex: Apresentar contestação"
+                    x-model="novoPrazo.descricao"></textarea>
+        </label>
+
+        <label class="form-control">
+          <span class="label-text text-xs mb-1">Data de vencimento <span class="text-error">*</span></span>
+          <input type="date"
+                 class="input input-bordered input-sm"
+                 x-model="novoPrazo.data_alvo"
+                 required>
+        </label>
+
+        <template x-if="erroSalvar">
+          <div class="alert alert-error py-2 text-xs" x-text="erroSalvar"></div>
+        </template>
+
+        <div class="flex justify-end gap-2 mt-2">
+          <button type="button" class="btn btn-sm btn-ghost" @click="fecharModalNovo()">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-primary" :disabled="salvando">
+            <span x-show="!salvando">Salvar</span>
+            <span x-show="salvando">Salvando…</span>
+          </button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+  </dialog>
+
+</div>
+
+<script>
+function prazosApp() {
+  return {
+    prazos: [],
+    hoje: '',
+    novoPrazo: { paj_norm: '', assistido: '', descricao: '', data_alvo: '' },
+    salvando: false,
+    erroSalvar: '',
+
+    async init() {
+      await this.recarregar();
+    },
+
+    async recarregar() {
+      try {
+        const resp = await fetch('/api/prazos');
+        const data = await resp.json();
+        this.prazos = data.prazos || [];
+        this.hoje = data.hoje || '';
+      } catch (e) {
+        this.prazos = [];
+      }
+    },
+
+    abrirModalNovo() {
+      this.novoPrazo = { paj_norm: '', assistido: '', descricao: '', data_alvo: '' };
+      this.erroSalvar = '';
+      document.getElementById('modal-novo-prazo').showModal();
+    },
+
+    fecharModalNovo() {
+      document.getElementById('modal-novo-prazo').close();
+    },
+
+    async salvarPrazoManual() {
+      this.salvando = true;
+      this.erroSalvar = '';
+      try {
+        const resp = await fetch('/api/prazos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paj_norm: (this.novoPrazo.paj_norm || '').trim().toUpperCase(),
+            assistido: (this.novoPrazo.assistido || '').trim(),
+            descricao: (this.novoPrazo.descricao || '').trim(),
+            data_alvo: (this.novoPrazo.data_alvo || '').trim(),
+          }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          this.erroSalvar = err.detail || 'Erro ao salvar prazo.';
+          return;
+        }
+        this.fecharModalNovo();
+        await this.recarregar();
+      } catch (e) {
+        this.erroSalvar = 'Falha de rede ao salvar prazo.';
+      } finally {
+        this.salvando = false;
+      }
+    },
+
+    async cumprirPrazo(p) {
+      const titulo = p.paj_norm + (p.data_alvo ? ' — ' + this.formatarData(p.data_alvo) : '');
+      if (!confirm(`Marcar como cumprido?\n\n${titulo}\n\nO prazo será removido da lista (sem histórico).`)) {
+        return;
+      }
+      try {
+        const resp = await fetch('/api/prazos/' + encodeURIComponent(p.id), { method: 'DELETE' });
+        if (!resp.ok) {
+          alert('Não foi possível remover o prazo.');
+          return;
+        }
+        await this.recarregar();
+      } catch (e) {
+        alert('Falha de rede ao remover o prazo.');
+      }
+    },
+
+    ehPajPadrao(s) {
+      return /^PAJ-\d{4}-\d{3}-\d{5}$/.test(s || '');
+    },
+
+    formatarData(iso) {
+      if (!iso) return '—';
+      const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return iso;
+      return `${m[3]}/${m[2]}/${m[1]}`;
+    },
+
+    ritoLabel(p) {
+      if (p.manual) return 'Manual';
+      const rito = p.rito || 'civel';
+      const label = {
+        civel: 'Cível',
+        jef: 'JEF',
+        penal: 'Penal',
+        administrativo: 'Adm.'
+      }[rito] || rito;
+      return p.em_dobro ? label + ' (2×)' : label;
+    },
+
+    ritoBadge(rito) {
+      return {
+        civel: 'badge-info',
+        jef: 'badge-accent',
+        penal: 'badge-error',
+        administrativo: 'badge-ghost',
+        manual: 'badge-warning'
+      }[rito || 'civel'] || 'badge-ghost';
+    },
+
+    textoRestantes(d) {
+      if (d === null || d === undefined) return 'sem data';
+      if (d < 0) return Math.abs(d) + 'd vencido';
+      if (d === 0) return 'hoje';
+      return d + 'd';
+    },
+
+    badgeRestantes(d) {
+      if (d === null || d === undefined) return 'badge-ghost';
+      if (d < 0) return 'badge-error';
+      if (d <= 2) return 'badge-error';
+      if (d <= 7) return 'badge-warning';
+      return 'badge-success';
+    },
+  };
+}
+</script>
+{% endblock %}
