@@ -1,6 +1,6 @@
 # DPU-script-SIS
 
-Interface web para o pipeline **dpuscript** — sistema de monitoramento e elaboração de peças para Defensores Públicos Federais atuantes na TNU e no STJ.
+Interface web para o pipeline **dpuscript** — sistema de monitoramento para Defensores Públicos Federais.
 
 > Desenvolvido para uso interno na DPU. Projeto pessoal, sem vínculo institucional oficial.
 
@@ -8,7 +8,7 @@ Interface web para o pipeline **dpuscript** — sistema de monitoramento e elabo
 
 ## O que é
 
-O **DPU-script-SIS** é um painel web para Defensores/as Públicos/as Federais que usam o **SISDPU**. Centraliza num só lugar: acompanhamento da caixa de entrada, gestão de prazos processuais, controle de peças e elaboração assistida de manifestações via Claude Code.
+O **DPU-script-SIS** é um painel web para Defensores/as Públicos/as Federais que usam o **SISDPU**. Centraliza num só lugar: organização e acompanhamento da caixa de entrada, triagem, gestão de prazos processuais, controle de peças.
 
 O sistema tem dois blocos:
 
@@ -26,7 +26,7 @@ O sistema tem dois blocos:
 - **Prazos** — aba dedicada aos prazos detectados, com integração opcional ao Google Calendar
 - **Watchlist** — PAJs marcados como acompanhamento prioritário, com motivo
 - **Pipeline monitor** — histórico e logs das sincronizações já realizadas
-- **Chat com Claude Code (via CLI, sem API paga)** — elaboração assistida de peças com skills dedicadas + chat livre persistente por PAJ
+- **Chat com Claude Code (via CLI, sem API paga)** — triagem assistida com skills dedicadas + chat livre persistente por PAJ
 - **Busca textual** em movimentações e peças
 - **Geração de DOCX/PDF** via scripts externos do workspace do defensor
 
