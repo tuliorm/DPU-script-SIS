@@ -10,7 +10,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from services import watchlist_service
+from config import PAJS_DIR
+from services import sync_service, watchlist_service
 from services.paj_service import PAJ_NORM_REGEX
 
 router = APIRouter()
@@ -59,7 +60,27 @@ async def api_adicionar(payload: WatchlistAddIn):
             detail="paj_norm deve seguir o formato PAJ-YYYY-NNN-NNNNN",
         )
     item = watchlist_service.adicionar(paj_norm, motivo=payload.motivo)
-    return {"ok": True, "item": item}
+
+    # INVARIANTE: se o PAJ ja tem metadata.json (passou pela caixa, foi
+    # sincronizado em algum momento, ou foi adicionado a watchlist antes),
+    # NAO tocamos no metadata existente sob nenhuma hipotese — os dados ja
+    # trabalhados pelo defensor devem ser preservados integralmente.
+    #
+    # A consulta leve ao SIS-DPU so' dispara quando o PAJ e' inedito no
+    # sistema (sem pasta/metadata). Popula apenas o cabecalho (aba Resumo);
+    # movimentacoes e anexos ficam para uma sync manual via botao
+    # "Sincronizar" da tela do PAJ.
+    busca: dict = {"executada": False}
+    meta_path = PAJS_DIR / paj_norm / "metadata.json"
+    if not meta_path.exists():
+        resultado = await sync_service.buscar_resumo_paj(paj_norm)
+        busca = {
+            "executada": True,
+            "ok": bool(resultado.get("ok")),
+            "mensagem": resultado.get("mensagem", ""),
+        }
+
+    return {"ok": True, "item": item, "busca": busca}
 
 
 @router.put("/api/watchlist/{paj_norm}/motivo", response_class=JSONResponse)

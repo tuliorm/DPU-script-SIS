@@ -11,8 +11,11 @@ Credenciais vem das env vars SISDPU_USERNAME e SISDPU_PASSWORD (carregadas do
 
 from __future__ import annotations
 
+import datetime as _dt
+import logging
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 from playwright.async_api import Browser, Page, async_playwright
@@ -21,6 +24,15 @@ import contextlib
 
 
 SISDPU_URL = "https://sisdpu.dpu.def.br/sisdpu"
+
+# Logger dedicado — os logs `[busca-paj]` vao para logs/app.log (handler
+# configurado em app.py com rotacao diaria). Tambem aparecem no console
+# quando o painel e' iniciado num terminal visivel.
+_log = logging.getLogger("sisdpu.busca")
+
+# Diretorio onde despejamos screenshot + HTML quando a busca via campo global
+# falha — facilita o diagnostico (DOM real do SISDPU vs nossa heuristica).
+_DEBUG_DIR = Path(__file__).resolve().parents[1] / "logs" / "sisdpu_debug"
 
 
 class CredenciaisInvalidas(Exception):
@@ -406,6 +418,533 @@ async def movimentacoes_paj(numero: str, ano: str, unidade: str = "44") -> dict:
     if todas_urls:
         dados["urls_decisoes"] = todas_urls
 
+    return dados
+
+
+# JS que dispara a busca rapida do SISDPU. Descobertas chave (vistas no
+# page.html do debug):
+#  - O botao tem onmouseup="buscarProcesso(event)" (funcao JS customizada).
+#  - O resultado abre em POPUP via redirecionar(url, idProcesso) ->
+#    window.open(...). Por isso a URL da janela atual nunca muda.
+#  - O ano/unidade da busca vem dos hidden inputs anoAtualParaPesquisaRapida
+#    e codigoUnidadeParaPesquisaRapida (defaults para a unidade do usuario).
+#    Para buscar PAJ de outro ano/unidade temos que alterar esses hidden.
+_JS_PESQUISAR_PAJ = """
+(args) => {
+    const { termo, ano, unidade } = args;
+    const debug = {};
+
+    // ----- 1) Hidden inputs ano/unidade — sobrescreve para o PAJ desejado -----
+    const anoHidden = document.getElementById('anoAtualParaPesquisaRapida');
+    const unidHidden = document.getElementById('codigoUnidadeParaPesquisaRapida');
+    if (anoHidden) {
+        debug.anoAntes = anoHidden.value;
+        anoHidden.value = ano;
+        debug.anoDepois = anoHidden.value;
+    }
+    if (unidHidden) {
+        debug.unidAntes = unidHidden.value;
+        unidHidden.value = unidade;
+        debug.unidDepois = unidHidden.value;
+    }
+
+    // ----- 2) Input do numero -----
+    const input = document.getElementById('processoPesquisaRapidaNumeroProcesso');
+    if (!input) return { ok: false, erro: 'input processoPesquisaRapidaNumeroProcesso nao encontrado', debug };
+    debug.inputId = input.id;
+
+    const btn = document.getElementById('botaoPesquisarPesquisaRapida');
+    if (!btn) return { ok: false, erro: 'botao botaoPesquisarPesquisaRapida nao encontrado', debug };
+    debug.btnId = btn.id;
+
+    input.focus();
+    input.value = termo;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // ----- 3) Aciona buscarProcesso(event) — o handler do onmouseup -----
+    try {
+        if (typeof buscarProcesso === 'function') {
+            const ev = new MouseEvent('mouseup', { bubbles: true, cancelable: true });
+            Object.defineProperty(ev, 'target', { value: btn, writable: false });
+            buscarProcesso(ev);
+            debug.metodo = 'buscarProcesso(event)';
+            return { ok: true, debug };
+        }
+        debug.buscarProcesso_disponivel = false;
+    } catch (e) {
+        debug.busca_erro = e.message;
+    }
+
+    // Fallback: dispara mouseup real no botao
+    try {
+        btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        debug.metodo = (debug.metodo || '') + '+mouseup';
+    } catch (e) {
+        debug.mouseup_erro = e.message;
+    }
+
+    return { ok: true, debug };
+}
+"""
+
+
+async def _dump_debug_paj(
+    page: Page,
+    paj_texto: str,
+    motivo: str,
+    extras: dict | None = None,
+) -> Path:
+    """Salva screenshot + HTML + body.innerText + info da pagina atual em
+    logs/sisdpu_debug/ para diagnostico. Usado tanto em falhas quanto em
+    sucessos durante a fase de afinacao dos seletores. Devolve a pasta criada."""
+    ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    slug = paj_texto.replace("/", "-").replace(" ", "_")
+    pasta = _DEBUG_DIR / f"{ts}_{slug}"
+    pasta.mkdir(parents=True, exist_ok=True)
+
+    with contextlib.suppress(Exception):
+        await page.screenshot(path=str(pasta / "screenshot.png"), full_page=True)
+    with contextlib.suppress(Exception):
+        html = await page.content()
+        (pasta / "page.html").write_text(html, encoding="utf-8")
+    with contextlib.suppress(Exception):
+        texto = await page.inner_text("body")
+        (pasta / "body.txt").write_text(texto, encoding="utf-8")
+
+    info = [
+        f"timestamp: {ts}",
+        f"paj_texto: {paj_texto}",
+        f"motivo: {motivo}",
+        f"url: {page.url}",
+    ]
+    if extras:
+        for k, v in extras.items():
+            info.append(f"{k}: {v}")
+    (pasta / "info.txt").write_text("\n".join(info) + "\n", encoding="utf-8")
+    return pasta
+
+
+async def buscar_paj_global(
+    numero: str, ano: str, unidade: str = "44",
+) -> dict:
+    """Busca um PAJ via campo de pesquisa global do SISDPU (header da caixa).
+
+    Diferente de `movimentacoes_paj`, esta funcao NAO depende do PAJ estar na
+    caixa de entrada do defensor — usa o campo "Pesquisar" que aceita qualquer
+    PAJ da unidade. Extrai os mesmos dados de cabecalho e movimentacoes.
+
+    Retorna `{"erro": "..."}` se a busca falhar. Em caso de falha, salva
+    screenshot + HTML + info em `logs/sisdpu_debug/` para diagnostico.
+    """
+    paj_texto = f"{ano}/{unidade.zfill(3)}-{numero}"
+    _log.info("INICIO termo='%s'", paj_texto)
+
+    # Forca sessao fresca — fecha qualquer browser/page residual e refaz login
+    # do zero. Garante estado limpo (sem sessao expirada silenciosamente, sem
+    # pagina morta de uma execucao anterior).
+    _log.info("forcando nova sessao (fechar+login)...")
+    with contextlib.suppress(Exception):
+        await fechar()
+    await _ensure_logged_in()
+    page = await _get_page()
+    _log.info("logado, url pos-login: %s", page.url)
+
+    await page.goto(
+        f"{SISDPU_URL}/pages/caixaentrada/caixaEntrada.xhtml",
+        wait_until="domcontentloaded",
+    )
+    await page.wait_for_timeout(1500)
+    await _wait_pf_ajax(page, timeout=10000)
+    _log.info("caixa carregada url=%s", page.url)
+
+    # ---------- Verificacoes de sessao viva ----------
+    # 1) URL nao caiu pra tela de login (redirect silencioso por sessao expirada).
+    if "login" in page.url.lower():
+        msg = "apos login, ainda na tela de login — sessao nao autenticada"
+        with contextlib.suppress(Exception):
+            pasta = await _dump_debug_paj(page, paj_texto, msg)
+            _log.warning("FIM(login-nao-efetivo) debug salvo em: %s", pasta)
+        return {"erro": msg}
+
+    # 2) Estamos de fato na area logada: precisa ter o botao "Pesquisar" do
+    #    header (visivel em todas as telas autenticadas) E o titulo da unidade
+    #    ("Unidade DPU - ..."). Se nao aparecerem, a sessao esta "morta"
+    #    (logado mas sem direitos / popup bloqueando / pagina parcial).
+    sessao_viva = await page.evaluate(
+        """() => {
+            const corpo = (document.body.innerText || '').toLowerCase();
+            const temUnidade = corpo.includes('unidade dpu');
+            const cands = document.querySelectorAll(
+                'button, input[type="submit"], input[type="button"], input[type="image"], a, span[role="button"]'
+            );
+            let temBtnPesquisar = false;
+            for (const el of cands) {
+                const txt = ((el.textContent || el.value || el.title || el.getAttribute('aria-label') || '') + '').trim().toLowerCase();
+                if (txt === 'pesquisar' || txt === 'buscar' || txt.includes('pesquis')) {
+                    temBtnPesquisar = true; break;
+                }
+            }
+            return {
+                ok: temUnidade && temBtnPesquisar,
+                temUnidade, temBtnPesquisar,
+                trecho_inicio_body: corpo.substring(0, 200)
+            };
+        }"""
+    )
+    _log.info("sessao_viva=%s", sessao_viva)
+    if not sessao_viva.get("ok"):
+        msg = (
+            f"sessao SIS-DPU nao confirmada como ativa — "
+            f"temUnidade={sessao_viva.get('temUnidade')} "
+            f"temBtnPesquisar={sessao_viva.get('temBtnPesquisar')}"
+        )
+        with contextlib.suppress(Exception):
+            pasta = await _dump_debug_paj(
+                page, paj_texto, msg, extras={"sessao": sessao_viva},
+            )
+            _log.warning("FIM(sessao-morta) debug salvo em: %s", pasta)
+        return {"erro": msg}
+
+    # Diagnostico inicial — lista os inputs de texto e botoes com texto
+    # "Pesquisar"/"Buscar" presentes na pagina. Util pra entender se a
+    # heuristica esta achando o elemento errado ou nada.
+    inventario = await page.evaluate(
+        """() => {
+            const inputs = Array.from(document.querySelectorAll('input')).map(el => ({
+                id: el.id || '',
+                type: el.type || '',
+                name: el.name || '',
+                placeholder: el.placeholder || '',
+                ariaLabel: el.getAttribute('aria-label') || ''
+            })).filter(i => i.type === 'text' || i.type === '' || i.type === 'search');
+
+            const cands = document.querySelectorAll(
+                'button, input[type="submit"], input[type="button"], input[type="image"], a, span[role="button"]'
+            );
+            const botoes = [];
+            for (const el of cands) {
+                const txt = ((el.textContent || el.value || el.title || el.getAttribute('aria-label') || '') + '').trim();
+                if (txt.toLowerCase().includes('pesquis') || txt.toLowerCase().includes('buscar')) {
+                    botoes.push({ tag: el.tagName, id: el.id || '', texto: txt.substring(0, 40) });
+                }
+            }
+            return {
+                n_inputs_texto: inputs.length,
+                inputs_amostra: inputs.slice(0, 12),
+                botoes_pesquisar: botoes.slice(0, 8),
+                titulo: document.title || ''
+            };
+        }"""
+    )
+    _log.info("inventario da pagina: %s", inventario)
+
+    # O campo aceita o numero do PAJ (formato variavel) — vamos tentar primeiro
+    # a forma confirmada pelo usuario (numero do PAJ, ex: 2024/003-00512), e
+    # depois algumas variantes como fallback. Os campos hidden ano/unidade
+    # sao ajustados pelo JS antes da busca, entao o "termo" pode ser so' o
+    # numero ou o PAJ completo.
+    numero_z = numero.zfill(5)
+    unidade_z = unidade.zfill(3)
+    tentativas = [
+        numero_z,                                  # 00512 (so' o numero — ano/unid via hidden)
+        f"{ano}/{unidade_z}-{numero_z}",          # 2024/003-00512 (formato PAJ canonico)
+        f"{ano}{unidade_z}{numero_z}",            # 202400300512 (12 digitos puros)
+        numero_z.lstrip("0") or numero_z,         # 512 (sem zero-pad)
+    ]
+    vistos: set[str] = set()
+    tentativas = [t for t in tentativas if not (t in vistos or vistos.add(t))]
+
+    # Page do detalhamento — pode ser a propria janela atual (se buscarProcesso
+    # navegar) ou um POPUP novo (descobrimos no markup que redirecionar() faz
+    # window.open). Comeca como None — a primeira tentativa que abrir popup
+    # OU navegar a janela atual sera capturada.
+    page_detalhe: Page | None = None
+    sucesso = False
+    erro_ultimo = ""
+    debug_acumulado: list[dict] = []
+    re_pag_detalhe = re.compile(r"\d{4}/\d{3}-\d+\s*-\s*PAJ\s")
+    contexto = page.context
+
+    for termo in tentativas:
+        _log.info("tentando termo='%s'", termo)
+
+        # Escuta um novo "page" (popup) sendo aberto no contexto. Se a
+        # buscarProcesso navegar na janela atual, esse expect_page nao captura
+        # nada e cai no fallback abaixo.
+        popup_capturado: Page | None = None
+        try:
+            async with contexto.expect_page(timeout=12000) as popup_info:
+                res = await page.evaluate(
+                    _JS_PESQUISAR_PAJ,
+                    {"termo": termo, "ano": ano, "unidade": unidade_z},
+                )
+                if not isinstance(res, dict) or not res.get("ok"):
+                    erro_ultimo = (res or {}).get("erro", "falha ao localizar campo de pesquisa")
+                    debug_acumulado.append({"termo": termo, "res": res})
+                    _log.warning("  FALHA: %s debug=%s", erro_ultimo, res)
+                    if "campo" in erro_ultimo or "botao" in erro_ultimo:
+                        # nao adianta tentar outros termos
+                        raise StopIteration
+            popup_capturado = await popup_info.value
+            _log.info("  popup capturado url=%s", popup_capturado.url)
+        except StopIteration:
+            break
+        except PWTimeoutError:
+            _log.info("  nenhum popup aberto neste termo (timeout do expect_page)")
+        except Exception as e:
+            _log.warning("  erro ao esperar popup: %s: %s", type(e).__name__, e)
+
+        # Se capturou popup, espera carregar e verifica conteudo
+        if popup_capturado is not None:
+            with contextlib.suppress(Exception):
+                await popup_capturado.wait_for_load_state("domcontentloaded", timeout=15000)
+            await popup_capturado.wait_for_timeout(2500)
+            with contextlib.suppress(Exception):
+                await _wait_pf_ajax(popup_capturado, timeout=15000)
+
+            body_pop = ""
+            with contextlib.suppress(Exception):
+                body_pop = await popup_capturado.inner_text("body")
+            tem_header = bool(re_pag_detalhe.search(body_pop))
+            _log.info(
+                "  popup carregado url=%s tem_header_detalhe=%s",
+                popup_capturado.url, tem_header,
+            )
+            if tem_header:
+                page_detalhe = popup_capturado
+                sucesso = True
+                break
+            erro_ultimo = f"popup aberto para '{termo}' mas sem cabecalho de detalhamento"
+            debug_acumulado.append({"termo": termo, "popup_url": popup_capturado.url})
+            with contextlib.suppress(Exception):
+                await popup_capturado.close()
+            continue
+
+        # Fallback: a janela atual pode ter navegado para o detalhamento
+        # (caso raro, mas defensivo). Da uns segundos pro PrimeFaces AJAX.
+        with contextlib.suppress(Exception):
+            await _wait_pf_ajax(page, timeout=15000)
+        await page.wait_for_timeout(2000)
+        body = ""
+        with contextlib.suppress(Exception):
+            body = await page.inner_text("body")
+        tem_header_detalhe = bool(re_pag_detalhe.search(body))
+        _log.info(
+            "  pos-pesquisa (janela atual) url=%s tem_header_detalhe=%s",
+            page.url, tem_header_detalhe,
+        )
+        if tem_header_detalhe:
+            page_detalhe = page
+            sucesso = True
+            break
+        erro_ultimo = (
+            f"pesquisa por '{termo}' nao abriu popup nem navegou — "
+            f"PAJ pode nao existir nessa unidade/ano"
+        )
+        debug_acumulado.append({"termo": termo, "url": page.url})
+
+        # Volta pra caixa antes da proxima tentativa
+        with contextlib.suppress(Exception):
+            await page.goto(
+                f"{SISDPU_URL}/pages/caixaentrada/caixaEntrada.xhtml",
+                wait_until="domcontentloaded",
+            )
+            await _wait_pf_ajax(page, timeout=10000)
+
+    if not sucesso or page_detalhe is None:
+        msg = erro_ultimo or "PAJ nao encontrado via pesquisa global"
+        with contextlib.suppress(Exception):
+            pasta = await _dump_debug_paj(
+                page, paj_texto, msg,
+                extras={"tentativas": debug_acumulado},
+            )
+            _log.warning("FIM(falha) debug salvo em: %s", pasta)
+        return {"erro": msg}
+
+    # A partir daqui a extracao roda em `page_detalhe`, que pode ser a janela
+    # atual OU um popup aberto por window.open. Substituimos a referencia
+    # `page` localmente para que o resto do codigo continue limpo.
+    page = page_detalhe
+
+    # Extrai os campos do cabecalho do detalhamento. Estrategia hibrida:
+    # (1) DOM-based para label/valor (mais robusto que regex no innerText)
+    # (2) regex residual para padroes posicionais (numero CNJ, linha PAJ).
+    # (3) filtros para descartar valores que sao claramente cabecalhos de tabela.
+    dados = await page.evaluate(
+        """
+        () => {
+            const r = {};
+            const body = document.body.innerText;
+
+            // ---------- Helper: encontra valor adjacente a um label ----------
+            const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim()
+                                          .toLowerCase().replace(/[:：]$/, '');
+
+            // Lixo conhecido — cabecalhos de tabelas do SISDPU que aparecem
+            // proximos a labels e foram capturados por engano antes.
+            const LIXO_TABELA = /^(data de envio|remetente|prazo|descri[çc][ãa]o|tipo|status|data|seq|usu[áa]rio|fases|movimenta[çc][ãa]o|seq\\.?)\\b/i;
+
+            function valorParaLabel(rotulos) {
+                const alvos = rotulos.map(norm);
+                const candidatos = document.querySelectorAll(
+                    'td, th, label, span, dt, dd, li, b, strong, div, p'
+                );
+                for (const el of candidatos) {
+                    const txt = norm(el.textContent || '');
+                    if (!alvos.includes(txt)) continue;
+
+                    // 1) Proximo sibling com texto util.
+                    let next = el.nextElementSibling;
+                    while (next) {
+                        const v = (next.textContent || '').trim();
+                        if (v) {
+                            const linha = v.split('\\n')[0].trim();
+                            if (linha && !LIXO_TABELA.test(linha) && linha.length < 250) {
+                                return linha;
+                            }
+                        }
+                        next = next.nextElementSibling;
+                    }
+
+                    // 2) Pai contendo label e valor juntos no innerText.
+                    const pai = el.parentElement;
+                    if (pai) {
+                        const fullPai = (pai.textContent || '').trim();
+                        const idx = fullPai.toLowerCase().indexOf(txt);
+                        if (idx >= 0) {
+                            const depois = fullPai.substring(idx + (el.textContent || '').length).trim();
+                            const linha = depois.split('\\n')[0].trim().replace(/^[:\\-\\s]+/, '');
+                            if (linha && !LIXO_TABELA.test(linha) && linha.length < 250) {
+                                return linha;
+                            }
+                        }
+                    }
+                }
+                return '';
+            }
+
+            // ---------- Campos do cabecalho (todos os que aparecem na aba Resumo) ----------
+            r.assistido = valorParaLabel(['Assistido(s)', 'Assistido', 'Assistidos']);
+            r.pretensao = valorParaLabel(['Pretensão', 'Pretensao']);
+            r.data_abertura = valorParaLabel([
+                'Data de Abertura', 'Dt. Abertura', 'Dt Abertura', 'Dt.Abertura', 'Abertura'
+            ]);
+            r.oficio = valorParaLabel([
+                'Ofício', 'Oficio', 'Ofício Responsável', 'Oficio Responsavel',
+                'Ofício responsável', 'Ofício atual'
+            ]);
+            r.juizo = valorParaLabel([
+                'Juízo/Orgão Julgador', 'Juizo/Orgao Julgador',
+                'Juízo/Órgão Julgador', 'Juízo', 'Juizo',
+                'Órgão Julgador', 'Orgao Julgador'
+            ]);
+            r.foro_detalhado = valorParaLabel([
+                'Foro Detalhado', 'Foro detalhado', 'Foro'
+            ]);
+            r.decurso = valorParaLabel([
+                'Decurso', 'Decurso agendado', 'Decurso Agendado'
+            ]);
+
+            // ---------- PAJ + status (linha "AAAA/UUU-NNNNN - PAJ STATUS") ----------
+            const pajMatch = body.match(/(\\d{4}\\/\\d{3}-\\d+)\\s*-\\s*PAJ\\s+([^\\n]+)/);
+            if (pajMatch) {
+                r.paj = pajMatch[1];
+                r.status_paj = pajMatch[2].trim();
+            }
+
+            // ---------- Numero do processo judicial (padrao CNJ) ----------
+            const procMatch = body.match(
+                /(\\d{7}-\\d{2}\\.\\d{4}\\.\\d\\.\\d{2}\\.\\d{4})/
+            );
+            if (procMatch) r.processo_judicial = procMatch[1];
+
+            // ---------- Movimentacoes (tabela; mesma logica de antes) ----------
+            const movs = [];
+            const movRows = document.querySelectorAll('table tbody tr');
+            for (const tr of movRows) {
+                const cells = tr.querySelectorAll('td');
+                if (cells.length >= 5) {
+                    const seq = (cells[0]?.textContent || '').trim();
+                    const dataHora = (cells[2]?.textContent || '').trim();
+                    const movimentacao = (cells[3]?.textContent || '').trim();
+                    const fases = (cells[4]?.textContent || '').trim();
+                    const textoCompleto = cells[5]?.textContent || '';
+                    const usuario = (cells[6]?.textContent || '').trim();
+
+                    if (seq && /^\\d{1,4}$/.test(seq)
+                        && (textoCompleto.trim() || movimentacao)) {
+                        movs.push({
+                            seq: seq,
+                            data: dataHora,
+                            movimentacao: movimentacao,
+                            fases: fases,
+                            descricao: textoCompleto.substring(0, 3000),
+                            links_decisao: [],
+                            usuario: usuario
+                        });
+                    }
+                }
+            }
+            if (movs.length > 0) r.movimentacoes = movs.slice(0, 50);
+
+            // ---------- Filtro final: descarta qualquer campo que tenha vazado lixo ----------
+            for (const k of ['assistido', 'pretensao', 'oficio', 'juizo', 'foro_detalhado', 'decurso', 'data_abertura']) {
+                if (r[k] && LIXO_TABELA.test(r[k])) {
+                    r[k] = '';
+                }
+            }
+
+            return r;
+        }
+        """
+    )
+
+    if not dados:
+        dados = {}
+
+    n_movs = len(dados.get("movimentacoes", []) or [])
+    _log.info(
+        "extracao: assistido=%s paj=%s movs=%d",
+        bool(dados.get("assistido")), dados.get("paj", "?"), n_movs,
+    )
+
+    # Validacao rigorosa: precisa do `paj` extraido pelo regex
+    # "AAAA/UUU-NNNNN - PAJ STATUS", que so' aparece na tela de detalhamento.
+    # Sem ele, ainda estamos na caixa ou em pagina inesperada.
+    if not dados.get("paj"):
+        msg = (
+            "extracao falhou — cabecalho do PAJ nao encontrado na pagina "
+            "(provavelmente nao estamos na tela de detalhamento)"
+        )
+        with contextlib.suppress(Exception):
+            pasta = await _dump_debug_paj(
+                page, paj_texto, msg,
+                extras={"dados_parciais": {k: v for k, v in dados.items() if k != "movimentacoes"}},
+            )
+            _log.warning("FIM(sem-paj) debug salvo em: %s", pasta)
+        return {"erro": msg}
+
+    dados["paj_numero"] = numero
+    dados["paj_ano"] = ano
+    dados["paj_unidade"] = unidade
+    dados["url"] = page.url
+
+    # Dump tambem em caso de sucesso durante esta fase de afinacao — ajuda
+    # diagnosticar campos vazios sem precisar retentar. Pode ser desligado
+    # depois que a extracao estiver estavel.
+    with contextlib.suppress(Exception):
+        pasta = await _dump_debug_paj(
+            page, paj_texto, "sucesso (dump pra afinacao)",
+            extras={
+                "campos_extraidos": {
+                    k: v for k, v in dados.items()
+                    if k not in ("movimentacoes", "sisdpu_raw")
+                },
+            },
+        )
+        _log.info("dump de sucesso salvo em: %s", pasta)
+    _log.info("FIM(ok) %s", paj_texto)
     return dados
 
 

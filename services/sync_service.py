@@ -143,6 +143,59 @@ async def rodar_sync_paj(
         yield linha
 
 
+async def buscar_resumo_paj(paj_identificador: str) -> dict:
+    """Versao leve da sincronizacao: busca um PAJ via campo de pesquisa do
+    SIS-DPU e grava apenas o metadata.json com dados de cabecalho. Sem SSE —
+    e' uma operacao curta (~poucos segundos) que retorna o resultado direto.
+
+    Pega o mesmo lock global das outras syncs para nao colidir com elas
+    (compartilham o browser Playwright). Se houver sync em andamento, retorna
+    `ok=False` para nao prender o request.
+
+    Retorna {paj_norm, ok, mensagem}.
+    """
+    if _sync_lock.locked():
+        return {
+            "paj_norm": "",
+            "ok": False,
+            "mensagem": "ja existe uma sincronizacao em andamento — tente novamente em alguns segundos",
+        }
+    if not SISDPU_USERNAME or not SISDPU_PASSWORD:
+        return {
+            "paj_norm": "",
+            "ok": False,
+            "mensagem": "credenciais SISDPU ausentes — preencha SISDPU_USERNAME/SISDPU_PASSWORD no .env",
+        }
+
+    async with _sync_lock:
+        try:
+            resultado = await asyncio.wait_for(
+                sincronizador.buscar_resumo_via_busca(paj_identificador),
+                timeout=60,
+            )
+        except TimeoutError:
+            resultado = {
+                "paj_norm": "",
+                "ok": False,
+                "mensagem": "timeout de 60s atingido na consulta ao SIS-DPU",
+            }
+        except CredenciaisInvalidas as e:
+            resultado = {
+                "paj_norm": "",
+                "ok": False,
+                "mensagem": f"credenciais SIS-DPU rejeitadas: {e}",
+            }
+        except Exception as e:
+            resultado = {
+                "paj_norm": "",
+                "ok": False,
+                "mensagem": f"erro inesperado: {type(e).__name__}: {e}",
+            }
+        finally:
+            invalidar_cache_listagem()
+        return resultado
+
+
 async def rodar_sync_anexos_desde_data(
     paj_identificador: str,
     data_inicio,
