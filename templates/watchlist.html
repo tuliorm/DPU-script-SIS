@@ -97,7 +97,7 @@
             <template x-for="item in itens" :key="item.paj_norm">
               <tr class="wl-row" :class="item.status === 'encerrado' ? 'encerrado' : ''">
                 <td class="font-mono text-xs whitespace-nowrap">
-                  <a :href="'/paj/' + item.paj_norm" class="link link-hover" x-text="item.paj_norm"></a>
+                  <a :href="'/paj/' + item.paj_norm" class="link link-hover" x-text="formatPaj(item.paj_norm)"></a>
                 </td>
                 <td class="text-sm max-w-[26rem]">
                   <div class="truncate-1" :title="item.motivo" x-text="item.motivo || '—'"></div>
@@ -147,10 +147,16 @@
           <span class="label-text text-xs mb-1">PAJ <span class="text-error">*</span></span>
           <input type="text"
                  class="input input-bordered input-sm font-mono"
-                 placeholder="PAJ-2026-044-00187"
-                 x-model="novo.paj_norm"
+                 placeholder="2026/044-00187"
+                 pattern="\d{4}/\d{3}-\d{5}"
+                 maxlength="14"
+                 inputmode="numeric"
+                 :value="novo.paj_norm"
+                 @input="onInputPaj($event)"
                  required>
-          <span class="text-[11px] text-base-content/40 mt-1">Formato: PAJ-YYYY-NNN-NNNNN</span>
+          <span class="text-[11px] text-base-content/40 mt-1">
+            Formato: AAAA/UUU-NNNNN — pode digitar só os 12 dígitos que o sistema insere os separadores.
+          </span>
         </label>
 
         <label class="form-control">
@@ -166,10 +172,13 @@
         </template>
 
         <div class="flex justify-end gap-2 mt-2">
-          <button type="button" class="btn btn-sm btn-ghost" @click="fecharModalNovo()">Cancelar</button>
+          <button type="button" class="btn btn-sm btn-ghost" @click="fecharModalNovo()" :disabled="salvando">Cancelar</button>
           <button type="submit" class="btn btn-sm btn-primary" :disabled="salvando">
             <span x-show="!salvando">Salvar</span>
-            <span x-show="salvando">Salvando…</span>
+            <span x-show="salvando" class="flex items-center gap-2">
+              <span class="loading loading-spinner loading-xs"></span>
+              Consultando SIS-DPU…
+            </span>
           </button>
         </div>
       </form>
@@ -217,11 +226,16 @@ function watchlistApp() {
       this.salvando = true;
       this.erro = '';
       try {
+        const pajNorm = pajExibicaoParaNorm(this.novo.paj_norm);
+        if (!pajNorm) {
+          this.erro = 'Formato inválido. Use AAAA/UUU-NNNNN (ex: 2026/044-00187).';
+          return;
+        }
         const r = await fetch('/api/watchlist', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            paj_norm: (this.novo.paj_norm || '').trim().toUpperCase(),
+            paj_norm: pajNorm,
             motivo: (this.novo.motivo || '').trim(),
           }),
         });
@@ -230,8 +244,19 @@ function watchlistApp() {
           this.erro = err.detail || 'Erro ao salvar.';
           return;
         }
+        const data = await r.json().catch(() => ({}));
         this.fecharModalNovo();
         await this.recarregar();
+
+        // Feedback sobre a consulta automatica ao SIS-DPU.
+        const busca = data.busca || {};
+        if (busca.executada && busca.ok) {
+          showToast('PAJ adicionado — dados do SIS-DPU carregados', 'success');
+        } else if (busca.executada && !busca.ok) {
+          showToast('PAJ adicionado, mas não foi possível buscar no SIS: ' + (busca.mensagem || 'erro desconhecido'), 'warning');
+        } else {
+          showToast('PAJ adicionado à watchlist', 'success');
+        }
       } catch (e) {
         this.erro = 'Falha de rede.';
       } finally {
@@ -240,7 +265,7 @@ function watchlistApp() {
     },
 
     async encerrar(item) {
-      if (!confirm(`Encerrar acompanhamento de ${item.paj_norm}?`)) return;
+      if (!confirm(`Encerrar acompanhamento de ${this.formatPaj(item.paj_norm)}?`)) return;
       await fetch('/api/watchlist/' + encodeURIComponent(item.paj_norm) + '/encerrar', { method: 'POST' });
       await this.recarregar();
     },
@@ -251,16 +276,56 @@ function watchlistApp() {
     },
 
     async remover(item) {
-      if (!confirm(`Remover ${item.paj_norm} da watchlist? (sem histórico)`)) return;
+      if (!confirm(`Remover ${this.formatPaj(item.paj_norm)} da watchlist? (sem histórico)`)) return;
       await fetch('/api/watchlist/' + encodeURIComponent(item.paj_norm), { method: 'DELETE' });
       await this.recarregar();
+    },
+
+    // formatPaj e formatInputPaj agora vivem em static/js/app.js como
+    // formatarPajNorm/formatarInputPaj — usados por toda tela do sistema.
+    formatPaj(paj_norm) { return formatarPajNorm(paj_norm); },
+    formatInputPaj(raw) { return formatarInputPaj(raw); },
+
+    onInputPaj(event) {
+      const input = event.target;
+      const oldValue = input.value;
+      const oldCursor = input.selectionStart ?? oldValue.length;
+
+      // Conta quantos dígitos existem antes do cursor no valor digitado.
+      let digitsBeforeCursor = 0;
+      for (let i = 0; i < oldCursor && i < oldValue.length; i++) {
+        if (/\d/.test(oldValue[i])) digitsBeforeCursor++;
+      }
+
+      const newValue = this.formatInputPaj(oldValue);
+      this.novo.paj_norm = newValue;
+
+      // Reposiciona o cursor logo após o N-ésimo dígito no valor reformatado.
+      let newCursor = newValue.length;
+      if (digitsBeforeCursor > 0) {
+        let count = 0;
+        for (let i = 0; i < newValue.length; i++) {
+          if (/\d/.test(newValue[i])) count++;
+          if (count === digitsBeforeCursor) {
+            newCursor = i + 1;
+            break;
+          }
+        }
+      } else {
+        newCursor = 0;
+      }
+
+      // Espera o Alpine refletir o novo value no DOM antes de setar a seleção.
+      this.$nextTick(() => {
+        input.setSelectionRange(newCursor, newCursor);
+      });
     },
 
     formatTime(iso) {
       if (!iso) return '—';
       try {
         const d = new Date(iso);
-        return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+        return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
       } catch { return iso; }
     },
   };

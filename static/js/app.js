@@ -1,5 +1,35 @@
 /* oficio-geral-ui — utilidades globais */
 
+/* Formato oficial de exibicao do numero do PAJ: AAAA/UUU-NNNNN (ano/unidade-numero).
+   Usado em toda tela do sistema (watchlist, prazos, dashboard, detalhes, etc.).
+   Internamente o paj_norm canonico continua sendo PAJ-YYYY-NNN-NNNNN (URLs,
+   nomes de pasta, chaves de JSON) — essas funcoes traduzem entre os formatos. */
+
+/* PAJ-2026-044-00187 -> "2026/044-00187". Defensivo: devolve a string original
+   se nao bater o regex (assim renderiza algo em vez de quebrar a tela). */
+function formatarPajNorm(paj_norm) {
+    if (!paj_norm) return '';
+    const m = String(paj_norm).match(/^PAJ-(\d{4})-(\d{3})-(\d{5})$/);
+    return m ? `${m[1]}/${m[2]}-${m[3]}` : paj_norm;
+}
+
+/* Auto-formata o que o usuario digitou no input do PAJ. Aceita qualquer entrada
+   (so digitos, com separadores diferentes, com prefixo PAJ-): extrai os 12
+   digitos e remonta no padrao AAAA/UUU-NNNNN conforme o usuario digita. */
+function formatarInputPaj(raw) {
+    const digits = String(raw || '').replace(/\D/g, '').slice(0, 12);
+    if (digits.length <= 4) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 4)}/${digits.slice(4)}`;
+    return `${digits.slice(0, 4)}/${digits.slice(4, 7)}-${digits.slice(7)}`;
+}
+
+/* "2026/044-00187" -> "PAJ-2026-044-00187". Retorna null se a string nao bater
+   o formato oficial (use para validar input antes de enviar para a API). */
+function pajExibicaoParaNorm(exibicao) {
+    const m = String(exibicao || '').trim().match(/^(\d{4})\/(\d{3})-(\d{5})$/);
+    return m ? `PAJ-${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
 /* Watchlist toggle — usado pelo paj_detail.html como x-data="watchlistToggle('PAJ-...')".
    Verifica se o PAJ esta na watchlist e expoe acoes adicionar/remover. */
 function watchlistToggle(pajNorm) {

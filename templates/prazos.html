@@ -46,7 +46,7 @@
       <div class="text-xs text-base-content/50 mt-1">
         Apenas prazos judiciais de PAJs ativos na caixa. PAJ concluído ou arquivado some daqui.
         Adições manuais ficam visíveis até serem cumpridas.
-        <span x-show="hoje">Hoje: <span class="font-mono" x-text="hoje"></span></span>
+        <span x-show="hoje">Hoje: <span class="font-mono" x-text="formatarData(hoje)"></span></span>
       </div>
     </div>
     <div class="flex gap-2">
@@ -82,7 +82,7 @@
               <tr class="prazo-row">
                 <td class="font-mono text-xs whitespace-nowrap">
                   <template x-if="ehPajPadrao(p.paj_norm)">
-                    <a :href="'/paj/' + p.paj_norm" class="link link-hover" x-text="p.paj_norm"></a>
+                    <a :href="'/paj/' + p.paj_norm" class="link link-hover" x-text="formatarPajNorm(p.paj_norm)"></a>
                   </template>
                   <template x-if="!ehPajPadrao(p.paj_norm)">
                     <span x-text="p.paj_norm"></span>
@@ -131,10 +131,16 @@
           <span class="label-text text-xs mb-1">PAJ <span class="text-error">*</span></span>
           <input type="text"
                  class="input input-bordered input-sm font-mono"
-                 placeholder="PAJ-2026-044-00187"
-                 x-model="novoPrazo.paj_norm"
+                 placeholder="2026/044-00187"
+                 pattern="\d{4}/\d{3}-\d{5}"
+                 maxlength="14"
+                 inputmode="numeric"
+                 :value="novoPrazo.paj_norm"
+                 @input="onInputPaj($event)"
                  required>
-          <span class="text-[11px] text-base-content/40 mt-1">Formato: PAJ-YYYY-NNN-NNNNN</span>
+          <span class="text-[11px] text-base-content/40 mt-1">
+            Formato: AAAA/UUU-NNNNN — pode digitar só os 12 dígitos que o sistema insere os separadores.
+          </span>
         </label>
 
         <label class="form-control">
@@ -213,15 +219,52 @@ function prazosApp() {
       document.getElementById('modal-novo-prazo').close();
     },
 
+    onInputPaj(event) {
+      const input = event.target;
+      const oldValue = input.value;
+      const oldCursor = input.selectionStart ?? oldValue.length;
+
+      let digitsBeforeCursor = 0;
+      for (let i = 0; i < oldCursor && i < oldValue.length; i++) {
+        if (/\d/.test(oldValue[i])) digitsBeforeCursor++;
+      }
+
+      const newValue = formatarInputPaj(oldValue);
+      this.novoPrazo.paj_norm = newValue;
+
+      let newCursor = newValue.length;
+      if (digitsBeforeCursor > 0) {
+        let count = 0;
+        for (let i = 0; i < newValue.length; i++) {
+          if (/\d/.test(newValue[i])) count++;
+          if (count === digitsBeforeCursor) {
+            newCursor = i + 1;
+            break;
+          }
+        }
+      } else {
+        newCursor = 0;
+      }
+
+      this.$nextTick(() => {
+        input.setSelectionRange(newCursor, newCursor);
+      });
+    },
+
     async salvarPrazoManual() {
       this.salvando = true;
       this.erroSalvar = '';
       try {
+        const pajNorm = pajExibicaoParaNorm(this.novoPrazo.paj_norm);
+        if (!pajNorm) {
+          this.erroSalvar = 'Formato de PAJ inválido. Use AAAA/UUU-NNNNN (ex: 2026/044-00187).';
+          return;
+        }
         const resp = await fetch('/api/prazos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            paj_norm: (this.novoPrazo.paj_norm || '').trim().toUpperCase(),
+            paj_norm: pajNorm,
             assistido: (this.novoPrazo.assistido || '').trim(),
             descricao: (this.novoPrazo.descricao || '').trim(),
             data_alvo: (this.novoPrazo.data_alvo || '').trim(),
@@ -242,7 +285,7 @@ function prazosApp() {
     },
 
     async cumprirPrazo(p) {
-      const titulo = p.paj_norm + (p.data_alvo ? ' — ' + this.formatarData(p.data_alvo) : '');
+      const titulo = formatarPajNorm(p.paj_norm) + (p.data_alvo ? ' — ' + this.formatarData(p.data_alvo) : '');
       if (!confirm(`Marcar como cumprido?\n\n${titulo}\n\nO prazo será removido da lista (sem histórico).`)) {
         return;
       }
