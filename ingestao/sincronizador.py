@@ -87,6 +87,8 @@ def _montar_sisdpu_txt(item_caixa: dict, det: dict) -> str:
         oficio = ""
     processo_judicial = det.get("processo_judicial", "")
     juizo = det.get("juizo", "")
+    foro_detalhado = (det.get("foro_detalhado") or "").strip()
+    decurso = (det.get("decurso") or "").strip()
 
     linhas.append(f"PAJ: {paj_id}")
     if assistido:
@@ -97,22 +99,33 @@ def _montar_sisdpu_txt(item_caixa: dict, det: dict) -> str:
         linhas.append(f"Pretensão: {pretensao}")
     if data_abertura:
         linhas.append(f"Data de Abertura: {data_abertura}")
+    if decurso:
+        linhas.append(f"Decurso: {decurso}")
     if oficio:
         linhas.append(f"Ofício: {oficio}")
     if processo_judicial:
-        sufixo = f" ({juizo})" if juizo else ""
+        # Foro detalhado tem precedencia sobre juizo na anotacao entre
+        # parenteses — e' o que o paj_detail.html consome (meta.foro_detalhado).
+        info_extra = foro_detalhado or juizo
+        sufixo = f" ({info_extra})" if info_extra else ""
         linhas.append(f"PROCESSO JUDICIAL VINCULADO: {processo_judicial}{sufixo}")
 
     linhas.append("")
     linhas.append("MOVIMENTAÇÕES RELEVANTES:")
 
     movs = det.get("movimentacoes", []) or []
-    # ordenadas: a tela ja devolve mais recentes no topo
+    # ordenadas: a tela ja devolve mais recentes no topo. O `seq` capturado da
+    # tabela do SIS-DPU e' persistido como prefixo "[seq=N]" para que o parser
+    # restaure a numeracao real (em vez de renumerar 1..N localmente, perdendo
+    # a correspondencia com o SIS — relevante quando sync baixa so' parte do
+    # historico).
     for m in movs:
+        seq = (str(m.get("seq", "") or "")).strip()
         data = (m.get("data") or "").split()[0] if m.get("data") else ""
         tipo = (m.get("movimentacao") or "").strip()
         desc = (m.get("descricao") or "").strip()
-        bloco = f"[{data}] {tipo + ': ' if tipo else ''}{desc}".strip()
+        prefixo_seq = f"[seq={seq}] " if seq else ""
+        bloco = f"{prefixo_seq}[{data}] {tipo + ': ' if tipo else ''}{desc}".strip()
         linhas.append(bloco)
 
     return "\n".join(linhas) + "\n"
@@ -804,6 +817,15 @@ def _reconciliar_arquivados(
         if meta.get("em_caixa_atual") is False:
             continue  # ja arquivado em sync anterior
 
+        # PAJ adicionado via watchlist (busca explicita do defensor) que NUNCA
+        # passou pela caixa nao deve ser arquivado pela reconciliacao — ele
+        # simplesmente nao esta no dominio da caixa. Sem essa excecao, qualquer
+        # sync da caixa o marcaria arquivado e apagaria anexos que o defensor
+        # baixou manualmente via botao "Sincronizar". So entra no fluxo de
+        # arquivamento se um dia tiver sido visto na caixa (em_caixa_atual=True).
+        if meta.get("via_watchlist") and meta.get("em_caixa_atual") is not True:
+            continue
+
         # Transicao ativo -> arquivado
         agora = datetime.now().isoformat(timespec="seconds")
         meta["em_caixa_atual"] = False
@@ -1216,3 +1238,110 @@ async def rodar_paj_unico(
         f"arquivos_baixados={resumo['baixados']}, "
         f"erros={len(resumo['erros'])}")
     return resumo
+
+
+async def buscar_resumo_via_busca(
+    paj_identificador: str,
+    log_callback: Callable[[str], None] | None = None,
+) -> dict:
+    """Busca um PAJ via campo de pesquisa global do SIS-DPU e grava um
+    metadata.json minimo com os dados do cabecalho. NAO baixa anexos nem
+    roda OCR — e' a versao "leve" usada quando o usuario adiciona um PAJ
+    a watchlist e o sistema precisa popular a aba Resumo.
+
+    O metadata recebe `via_watchlist: True` para que o dashboard possa
+    esconder esse PAJ da listagem geral (so aparece na watchlist e via URL
+    direta /paj/<id>). Se uma sync de caixa subsequente reencontrar o PAJ,
+    `em_caixa_atual` sera setado e a flag perde o efeito de ocultacao.
+
+    `paj_identificador` aceita 'PAJ-2026-044-00311' ou '2026/044-00311'.
+    Retorna {paj_norm, ok, mensagem} — `ok=True` se metadata foi gravado.
+    """
+    def log(msg: str) -> None:
+        if log_callback is not None:
+            with contextlib.suppress(Exception):
+                log_callback(msg)
+
+    alvo = paj_identificador.strip()
+    if alvo.startswith("PAJ-"):
+        resto = alvo[4:]
+        partes = resto.split("-", 1)
+        if len(partes) == 2:
+            alvo = f"{partes[0]}/{partes[1]}"
+
+    paj_norm = _normalizar_paj(alvo)
+    componentes = _decompor_paj(alvo)
+    if not componentes:
+        return {
+            "paj_norm": paj_norm,
+            "ok": False,
+            "mensagem": f"identificador invalido: {paj_identificador}",
+        }
+
+    ano, unidade, numero = componentes
+    log(f"[busca-paj] pesquisando {alvo} no SIS via campo global...")
+
+    try:
+        det = await sisdpu_client.buscar_paj_global(numero, ano, unidade)
+    except Exception as e:
+        log(f"[busca-paj] FALHA: {type(e).__name__}: {e}")
+        with contextlib.suppress(Exception):
+            await sisdpu_client.fechar()
+        return {
+            "paj_norm": paj_norm,
+            "ok": False,
+            "mensagem": f"erro ao acessar SIS-DPU: {type(e).__name__}: {e}",
+        }
+
+    if det.get("erro"):
+        log(f"[busca-paj] sem resultado: {det['erro']}")
+        with contextlib.suppress(Exception):
+            await sisdpu_client.fechar()
+        return {
+            "paj_norm": paj_norm,
+            "ok": False,
+            "mensagem": det["erro"],
+        }
+
+    # Item sintetico (PAJ nao estava na caixa, entao nao temos etiqueta/oficio
+    # vindos de la — usamos so o numero do PAJ; o restante vem do detalhamento).
+    item_sintetico = {"paj": alvo}
+    texto_sisdpu = _montar_sisdpu_txt(item_sintetico, det)
+
+    pasta = PAJS_DIR / paj_norm
+    pasta.mkdir(parents=True, exist_ok=True)
+    (pasta / "sisdpu.txt").write_text(texto_sisdpu, encoding="utf-8")
+
+    try:
+        metadata = parser.montar_metadata(paj_norm, texto_sisdpu)
+    except Exception as e:
+        log(f"[busca-paj] ERRO parser: {type(e).__name__}: {e}")
+        with contextlib.suppress(Exception):
+            await sisdpu_client.fechar()
+        return {
+            "paj_norm": paj_norm,
+            "ok": False,
+            "mensagem": f"erro ao processar metadata: {e}",
+        }
+
+    metadata["sisdpu_raw"] = det
+    # Marca origem: PAJ nao veio da caixa atual, foi puxado por busca explicita
+    # do defensor (via watchlist). Dashboard usa essa flag para esconder.
+    metadata["via_watchlist"] = True
+    # Nao seta em_caixa_atual — fica ausente. Se uma sync regular encontrar
+    # esse PAJ na caixa depois, ela seta True e o dashboard volta a mostrar.
+
+    (pasta / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    with contextlib.suppress(Exception):
+        await sisdpu_client.fechar()
+
+    log(f"[busca-paj] OK: {paj_norm} (assistido={metadata.get('assistido_caixa', '?')[:40]})")
+    return {
+        "paj_norm": paj_norm,
+        "ok": True,
+        "mensagem": "PAJ encontrado e dados do cabecalho gravados",
+    }

@@ -179,12 +179,25 @@ def listar_pajs(incluir_arquivados: bool = False) -> list[dict]:
         if esta_arquivado and not incluir_arquivados:
             continue
 
+        # PAJs adicionados via watchlist (busca explicita pelo defensor) NAO
+        # aparecem no dashboard — sao visiveis so na watchlist e via URL direta.
+        # Excecao: se uma sync regular ja confirmou em_caixa_atual=True, e' um
+        # PAJ "promovido" para a caixa e volta a aparecer normalmente.
+        if metadata.get("via_watchlist") and em_caixa is not True:
+            continue
+
         paj_norm = pasta.name
 
         det = metadata.get("detalhes_sisdpu", {}) or {}
         movs = det.get("movimentacoes", []) or []
-        movs_sorted = sorted(movs, key=lambda m: int(m.get("seq", 0) or 0))
-        ultima_mov = movs_sorted[0] if movs_sorted else {}
+        # "Ultima" = mais recente. Usa data como criterio principal (robusto
+        # tanto para seq real do SIS quanto para seq local de sisdpu.txt
+        # antigos), com seq como desempate para movimentacoes do mesmo dia.
+        ultima_mov = max(
+            movs,
+            key=lambda m: (m.get("data") or "", int(m.get("seq", 0) or 0)),
+            default={},
+        )
         max_seq_mov = max((int(m.get("seq", 0) or 0) for m in movs), default=0)
 
         # Contagem de pecas GERADAS pelo defensor/Claude (na raiz do PAJ)

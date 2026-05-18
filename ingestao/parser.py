@@ -8,6 +8,7 @@ Funcao publica: `montar_metadata(paj_norm, texto_sisdpu) -> dict`.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import re
 
@@ -35,6 +36,11 @@ RE_MOV_INLINE = re.compile(
     r"^Movimenta[cç][aã]o(?:\s*\[(\d{2}/\d{2}/\d{4})\])?\s*:\s*(.+)$",
     re.IGNORECASE,
 )
+# Prefixo opcional "[seq=N] " no inicio de uma linha de movimentacao —
+# carrega o numero real da Seq. do SIS-DPU. Quando ausente (sisdpu.txt
+# antigos, gerados antes desta feature), o parser cai no fallback de
+# numeracao local 1..N.
+RE_MOV_SEQ_PREFIX = re.compile(r"^\[seq=(\d+)\]\s*")
 RE_AREA = re.compile(r"^([A-Za-zÀ-ÿ]+)")
 
 AREAS_CANONICAS = {
@@ -120,18 +126,32 @@ def parsear_movimentacoes(texto: str) -> list[dict]:
     """Extrai blocos de movimentacao do corpo do .txt.
 
     Suporta:
-      [DD/MM/YYYY HH:MM] AUTOR: descricao...
+      [seq=N] [DD/MM/YYYY HH:MM] AUTOR: descricao... (formato atual)
+      [DD/MM/YYYY HH:MM] AUTOR: descricao...        (formato antigo)
       [DD/MM/YYYY] texto...
       Movimentacao [DD/MM/YYYY]: texto...
       Movimentacao: texto...
+
+    Quando o prefixo "[seq=N]" estiver presente, usa N como `seq` (numero
+    real da Seq. no SIS-DPU). Caso contrario, cai num contador local 1..N
+    (compativel com sisdpu.txt antigos).
     """
     movs: list[dict] = []
     linhas = texto.splitlines()
     current: dict | None = None
-    seq = 0
+    seq_local = 0
 
     for linha in linhas:
         stripped = linha.rstrip()
+
+        # Captura "[seq=N]" opcional no inicio e remove do stripped — assim
+        # os regexes seguintes continuam batendo no resto da linha.
+        m_seq_pref = RE_MOV_SEQ_PREFIX.match(stripped)
+        seq_sis: int | None = None
+        if m_seq_pref:
+            with contextlib.suppress(ValueError):
+                seq_sis = int(m_seq_pref.group(1))
+            stripped = stripped[m_seq_pref.end():]
 
         m_ini = RE_MOV_INICIO.match(stripped)
         m_inl = RE_MOV_INLINE.match(stripped)
@@ -139,10 +159,11 @@ def parsear_movimentacoes(texto: str) -> list[dict]:
         if m_ini:
             if current:
                 movs.append(current)
-            seq += 1
+            seq_local += 1
+            seq_final = seq_sis if seq_sis is not None else seq_local
             data_br = m_ini.group(1).split()[0]
             current = {
-                "seq": seq,
+                "seq": seq_final,
                 "data": parse_data_br(data_br),
                 "data_original": m_ini.group(1),
                 "descricao": m_ini.group(2).strip(),
@@ -152,10 +173,11 @@ def parsear_movimentacoes(texto: str) -> list[dict]:
         elif m_inl:
             if current:
                 movs.append(current)
-            seq += 1
+            seq_local += 1
+            seq_final = seq_sis if seq_sis is not None else seq_local
             data_ref = m_inl.group(1) or ""
             current = {
-                "seq": seq,
+                "seq": seq_final,
                 "data": parse_data_br(data_ref) if data_ref else "",
                 "data_original": data_ref,
                 "descricao": m_inl.group(2).strip(),
