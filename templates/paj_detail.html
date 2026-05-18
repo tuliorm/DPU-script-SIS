@@ -64,7 +64,7 @@
                 Este PAJ ficou com dados parciais —
                 {{ meta.sync_incompleto_motivo or 'sincronização interrompida' }}.
                 {% if meta.sync_incompleto_em %}
-                <span class="text-xs opacity-80">(em {{ meta.sync_incompleto_em[:19].replace('T', ' ') }})</span>
+                <span class="text-xs opacity-80">(em {{ meta.sync_incompleto_em | data_hora_br }})</span>
                 {% endif %}
             </p>
             <p class="text-sm mt-1">
@@ -255,11 +255,11 @@
     </div>
     <div class="bg-base-200 rounded-lg border border-base-300 p-4">
         <div class="text-xs text-base-content/50 mb-1">Última movimentação</div>
-        <div class="font-semibold">{{ meta.data_mov_caixa or '—' }}</div>
+        <div class="font-semibold">{{ meta.data_mov_caixa | data_br }}</div>
     </div>
     <div class="bg-base-200 rounded-lg border border-base-300 p-4">
-        <div class="text-xs text-base-content/50 mb-1">Migrado em</div>
-        <div class="font-semibold text-sm">{{ meta.migrado_em[:19] if meta.migrado_em else '—' }}</div>
+        <div class="text-xs text-base-content/50 mb-1">Última sincronização</div>
+        <div class="font-semibold text-sm">{{ meta.migrado_em | data_hora_br }}</div>
     </div>
 </div>
 
@@ -273,7 +273,7 @@
         <h3 class="font-bold">Prazos abertos</h3>
         {% for p in dados.prazos_abertos %}
         <p class="text-sm">
-            <strong>{{ p.data_final }}</strong>
+            <strong>{{ p.data_final | data_br }}</strong>
             {% if p.dias is not none %} ({{ p.dias }} dias){% endif %}
             {% if p.descricao %} — {{ p.descricao }}{% endif %}
         </p>
@@ -424,7 +424,7 @@
                     <tr><td class="text-base-content/50">Assistido</td><td>{{ meta.assistido_caixa or '—' }}</td></tr>
                     <tr><td class="text-base-content/50">Ofício</td><td>{{ meta.oficio_caixa or '—' }}</td></tr>
                     <tr><td class="text-base-content/50">Status</td><td>{{ det.status_paj or '—' }}</td></tr>
-                    <tr><td class="text-base-content/50">Data abertura</td><td>{{ meta.data_abertura or '—' }}</td></tr>
+                    <tr><td class="text-base-content/50">Data abertura</td><td>{{ meta.data_abertura | data_br }}</td></tr>
                     <tr><td class="text-base-content/50">Decurso</td><td>{{ meta.decurso or '—' }}</td></tr>
                 </tbody>
             </table>
@@ -436,12 +436,16 @@
         <h3 class="text-lg font-semibold mb-4">Movimentações ({{ dados.movimentacoes|length }})</h3>
         {% if dados.movimentacoes %}
         <div class="space-y-4">
-            {% for mov in dados.movimentacoes %}
+            {# Ordena por Seq. desc — a Seq. e' o numero real do SIS-DPU
+               (graças ao prefixo [seq=N] persistido no sisdpu.txt). Maior em
+               cima = movimentacao mais recente, batendo com a apresentacao
+               do proprio SIS-DPU. #}
+            {% for mov in dados.movimentacoes | sort(attribute='seq', reverse=true) %}
             <div class="border-l-2 border-primary/30 pl-4 hover:border-primary transition-colors mov-item"
                  data-mov-seq="{{ mov.seq or 0 }}">
                 <div class="flex items-center gap-2 mb-1">
                     <span class="badge badge-sm badge-ghost font-mono">Seq {{ mov.seq or '?' }}</span>
-                    <span class="text-sm text-base-content/60">{{ mov.data_original or mov.data or '?' }}</span>
+                    <span class="text-sm text-base-content/60">{{ (mov.data_original or mov.data) | data_br }}</span>
                     <span class="badge badge-xs badge-info ml-auto novidade-flag" style="display: none">novo desde sua última visita</span>
                 </div>
                 {% if mov.descricao %}
