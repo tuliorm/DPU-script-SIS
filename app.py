@@ -7,6 +7,7 @@ grava PID file. Evita duplicatas.
 import contextlib
 import logging
 import os
+import re
 import subprocess
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -95,7 +96,45 @@ def _formatar_area(valor: str | None) -> str:
     return _AREA_DISPLAY.get(str(valor).lower(), valor)
 
 
+# Formatadores de data — todas as datas exibidas ao usuario devem sair no
+# padrao brasileiro DD/MM/AAAA (com hora HH:MM quando aplicavel). Os filtros
+# sao tolerantes: aceitam ISO (YYYY-MM-DD[ THH:MM:SS...]), BR ja formatado,
+# vazio, ou qualquer outra string (que e' devolvida intacta).
+_RE_ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+_RE_ISO_DT = re.compile(r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})")
+_RE_BR_DATE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})")
+_RE_BR_DT = re.compile(r"^(\d{2})/(\d{2})/(\d{4})\s+(\d{2}):(\d{2})")
+
+
+def _data_br(valor) -> str:
+    if not valor:
+        return "—"
+    s = str(valor).strip()
+    m = _RE_BR_DATE.match(s)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}/{m.group(3)}"
+    m = _RE_ISO_DATE.match(s)
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    return s
+
+
+def _data_hora_br(valor) -> str:
+    if not valor:
+        return "—"
+    s = str(valor).strip()
+    m = _RE_ISO_DT.match(s)
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)} {m.group(4)}:{m.group(5)}"
+    m = _RE_BR_DT.match(s)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}/{m.group(3)} {m.group(4)}:{m.group(5)}"
+    return _data_br(s)
+
+
 app.state.jinja.filters["formatar_area"] = _formatar_area
+app.state.jinja.filters["data_br"] = _data_br
+app.state.jinja.filters["data_hora_br"] = _data_hora_br
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.include_router(dashboard_router)
 app.include_router(paj_router)
