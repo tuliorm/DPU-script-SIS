@@ -217,6 +217,75 @@ function sincronizarCaixa(baixarAnexos) {
     };
 }
 
+/* Sincronizacao da watchlist inteira — mesmo modal, endpoint /api/sync/watchlist.
+ * Itera todos os PAJs ativos via busca global do SIS-DPU (nao depende deles
+ * estarem na caixa de entrada). */
+function sincronizarWatchlist(baixarAnexos) {
+    if (typeof baixarAnexos === 'undefined') baixarAnexos = true;
+    let modal = document.getElementById('sync-modal');
+    let logEl = document.getElementById('sync-log');
+    let statusEl = document.getElementById('sync-status');
+    let closeBtn = document.getElementById('sync-close-btn');
+    let titleEl = document.getElementById('sync-title');
+    if (!modal || !logEl) {
+        showToast('Modal de sync não encontrado na página', 'error');
+        return;
+    }
+
+    if (titleEl) titleEl.textContent = 'Sincronizar watchlist';
+    logEl.textContent = '';
+    statusEl.textContent = baixarAnexos ? 'sincronizando watchlist...' : 'sincronizando watchlist (rápido)...';
+    statusEl.className = 'badge badge-sm badge-warning';
+    closeBtn.disabled = true;
+    const cancelBtn = document.getElementById('sync-cancel-btn');
+    if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = 'Cancelar'; }
+    _syncBtnCancel(true);
+    modal.showModal();
+
+    if (_syncSource) {
+        _syncSource.close();
+        _syncSource = null;
+    }
+
+    let url = '/api/sync/watchlist';
+    if (!baixarAnexos) url += '?anexos=0';
+    _syncSource = new EventSource(url);
+
+    _syncSource.addEventListener('log', function(e) {
+        logEl.textContent += e.data + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+    });
+
+    _syncSource.addEventListener('done', function(e) {
+        logEl.textContent += '\n' + e.data + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+        statusEl.textContent = 'concluído';
+        statusEl.className = 'badge badge-sm badge-success';
+        closeBtn.disabled = false;
+        _syncBtnCancel(false);
+        if (_syncSource) { _syncSource.close(); _syncSource = null; }
+        showToast('Watchlist sincronizada — recarregando', 'success');
+        setTimeout(function() {
+            if (!modal.open) {
+                window.location.reload();
+            } else {
+                modal.addEventListener('close', function once() {
+                    modal.removeEventListener('close', once);
+                    window.location.reload();
+                });
+            }
+        }, 500);
+    });
+
+    _syncSource.onerror = function() {
+        statusEl.textContent = 'erro/desconectado';
+        statusEl.className = 'badge badge-sm badge-error';
+        closeBtn.disabled = false;
+        _syncBtnCancel(false);
+        if (_syncSource) { _syncSource.close(); _syncSource = null; }
+    };
+}
+
 /* Sincronizacao de UM unico PAJ — mesmo modal, endpoint /api/sync/paj/{paj} */
 function sincronizarPaj(pajNorm, baixarAnexos) {
     if (typeof baixarAnexos === 'undefined') baixarAnexos = true;

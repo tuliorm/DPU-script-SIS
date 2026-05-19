@@ -494,10 +494,16 @@ async def _dump_debug_paj(
     paj_texto: str,
     motivo: str,
     extras: dict | None = None,
+    extra_pages: dict[str, Page] | None = None,
 ) -> Path:
     """Salva screenshot + HTML + body.innerText + info da pagina atual em
     logs/sisdpu_debug/ para diagnostico. Usado tanto em falhas quanto em
-    sucessos durante a fase de afinacao dos seletores. Devolve a pasta criada."""
+    sucessos durante a fase de afinacao dos seletores. Devolve a pasta criada.
+
+    `extra_pages={"popup": page2, ...}` dumpa tambem essas paginas extras com
+    sufixo no nome do arquivo (popup_screenshot.png, popup_body.txt, etc.) —
+    util pra capturar popups que foram abertos mas nao bateram a verificacao.
+    """
     ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     slug = paj_texto.replace("/", "-").replace(" ", "_")
     pasta = _DEBUG_DIR / f"{ts}_{slug}"
@@ -521,6 +527,18 @@ async def _dump_debug_paj(
     if extras:
         for k, v in extras.items():
             info.append(f"{k}: {v}")
+
+    if extra_pages:
+        for nome, pg in extra_pages.items():
+            with contextlib.suppress(Exception):
+                await pg.screenshot(path=str(pasta / f"{nome}_screenshot.png"), full_page=True)
+            with contextlib.suppress(Exception):
+                (pasta / f"{nome}_page.html").write_text(await pg.content(), encoding="utf-8")
+            with contextlib.suppress(Exception):
+                (pasta / f"{nome}_body.txt").write_text(await pg.inner_text("body"), encoding="utf-8")
+            with contextlib.suppress(Exception):
+                info.append(f"{nome}_url: {pg.url}")
+
     (pasta / "info.txt").write_text("\n".join(info) + "\n", encoding="utf-8")
     return pasta
 
@@ -639,18 +657,18 @@ async def buscar_paj_global(
     )
     _log.info("inventario da pagina: %s", inventario)
 
-    # O campo aceita o numero do PAJ (formato variavel) — vamos tentar primeiro
-    # a forma confirmada pelo usuario (numero do PAJ, ex: 2024/003-00512), e
-    # depois algumas variantes como fallback. Os campos hidden ano/unidade
-    # sao ajustados pelo JS antes da busca, entao o "termo" pode ser so' o
-    # numero ou o PAJ completo.
+    # Regra confirmada pelo usuario: o campo de pesquisa SEMPRE exige o numero
+    # completo do PAJ (12 digitos no total: 4 ano + 3 unidade + 5 numero).
+    # Caracteres especiais (`/` e `-`) sao opcionais. Pesquisar so pelo numero
+    # final (ex: '00090' ou '90') NAO funciona — o SIS-DPU exige ano+unidade
+    # tambem. Por isso so' tentamos as 2 formas validas:
+    #   1) canonico com separadores  — `2024/003-00512`
+    #   2) 12 digitos puros          — `202400300512`
     numero_z = numero.zfill(5)
     unidade_z = unidade.zfill(3)
     tentativas = [
-        numero_z,                                  # 00512 (so' o numero — ano/unid via hidden)
         f"{ano}/{unidade_z}-{numero_z}",          # 2024/003-00512 (formato PAJ canonico)
         f"{ano}{unidade_z}{numero_z}",            # 202400300512 (12 digitos puros)
-        numero_z.lstrip("0") or numero_z,         # 512 (sem zero-pad)
     ]
     vistos: set[str] = set()
     tentativas = [t for t in tentativas if not (t in vistos or vistos.add(t))]
@@ -663,7 +681,16 @@ async def buscar_paj_global(
     sucesso = False
     erro_ultimo = ""
     debug_acumulado: list[dict] = []
-    re_pag_detalhe = re.compile(r"\d{4}/\d{3}-\d+\s*-\s*PAJ\s")
+    # Regex que confirma "estou na tela de detalhamento do PAJ". O SIS-DPU
+    # tem mais de uma variante visual de cabecalho — aceitamos qualquer pista:
+    #  - "AAAA/UUU-NNNNN - PAJ STATUS" (formato compacto, presente em algumas paginas)
+    #  - "Numero do PAJ\tAAAA/UUU-NNNNN" (formato tabular, mais comum na tela atual)
+    #  - "Detalhamento do Processo" (titulo do breadcrumb — pista robusta)
+    re_pag_detalhe = re.compile(
+        r"\d{4}/\d{3}-\d+\s*-\s*PAJ\s"
+        r"|N[úu]mero\s+do\s+PAJ\s+\d{4}/\d{3}-\d+"
+        r"|Detalhamento\s+do\s+Processo"
+    )
     contexto = page.context
 
     for termo in tentativas:
@@ -695,30 +722,131 @@ async def buscar_paj_global(
         except Exception as e:
             _log.warning("  erro ao esperar popup: %s: %s", type(e).__name__, e)
 
-        # Se capturou popup, espera carregar e verifica conteudo
-        if popup_capturado is not None:
-            with contextlib.suppress(Exception):
-                await popup_capturado.wait_for_load_state("domcontentloaded", timeout=15000)
-            await popup_capturado.wait_for_timeout(2500)
-            with contextlib.suppress(Exception):
-                await _wait_pf_ajax(popup_capturado, timeout=15000)
+        # Se capturou popup, estrategia em 2 etapas:
+        #
+        # ETAPA 1 — tentar usar o popup direto. Espera load + polling do regex.
+        # ETAPA 2 (fallback) — pega URL do popup e NAVEGA a janela principal
+        # pra ela. Isso funciona porque `redirecionar(url, idProcesso)` no
+        # SIS-DPU e' so' `window.open(url + idProcesso)` — sem state JSF, e a
+        # URL e' totalmente stateless (so' precisa de cookie de sessao).
+        # Como a janela principal ja tem PrimeFaces carregado da caixa, o load
+        # completa de forma previsivel.
+        # JS que detecta "estou na tela de detalhamento do PAJ" — aceita 3
+        # padroes de cabecalho que o SIS-DPU usa em telas diferentes (mesmos
+        # padroes do regex Python `re_pag_detalhe` acima). Compartilhado entre
+        # ETAPA 1 (popup) e ETAPA 2 (janela principal pos-goto).
+        js_detect_header = r"""() => {
+            const txt = (document.body && document.body.innerText) || '';
+            return /\d{4}\/\d{3}-\d+\s*-\s*PAJ\s/.test(txt)
+                || /N[úu]mero\s+do\s+PAJ\s+\d{4}\/\d{3}-\d+/.test(txt)
+                || /Detalhamento\s+do\s+Processo/.test(txt);
+        }"""
 
-            body_pop = ""
+        if popup_capturado is not None:
+            popup_url_inicial = popup_capturado.url
             with contextlib.suppress(Exception):
-                body_pop = await popup_capturado.inner_text("body")
-            tem_header = bool(re_pag_detalhe.search(body_pop))
-            _log.info(
-                "  popup carregado url=%s tem_header_detalhe=%s",
-                popup_capturado.url, tem_header,
-            )
+                await popup_capturado.wait_for_load_state(
+                    "domcontentloaded", timeout=15000,
+                )
+
+            tem_header = False
+            # ETAPA 1: tentar ler do popup (10s)
+            with contextlib.suppress(PWTimeoutError, Exception):
+                await popup_capturado.wait_for_function(
+                    js_detect_header,
+                    timeout=10000,
+                    polling=250,
+                )
+                tem_header = True
+
             if tem_header:
+                # Popup funcionou — usa ele direto
+                with contextlib.suppress(Exception):
+                    await _wait_pf_ajax(popup_capturado, timeout=10000)
+                await popup_capturado.wait_for_timeout(500)
+                _log.info(
+                    "  popup OK url=%s", popup_capturado.url,
+                )
                 page_detalhe = popup_capturado
                 sucesso = True
                 break
-            erro_ultimo = f"popup aberto para '{termo}' mas sem cabecalho de detalhamento"
-            debug_acumulado.append({"termo": termo, "popup_url": popup_capturado.url})
+
+            # ETAPA 2: fallback — navega janela principal pra popup_url
+            popup_url_final = popup_capturado.url
+            url_alvo = popup_url_final if "detalhamentoProcesso" in popup_url_final else popup_url_inicial
+            _log.info(
+                "  popup nao renderizou em 10s — fallback: navegar janela principal pra %s",
+                url_alvo,
+            )
+
+            # Fecha o popup antes de mexer na janela principal
             with contextlib.suppress(Exception):
                 await popup_capturado.close()
+
+            if not url_alvo or "detalhamentoProcesso" not in url_alvo:
+                erro_ultimo = (
+                    f"popup '{termo}' nao renderizou e URL inesperada: {url_alvo!r}"
+                )
+                debug_acumulado.append({"termo": termo, "popup_url": url_alvo})
+                continue
+
+            try:
+                await page.goto(url_alvo, wait_until="domcontentloaded", timeout=20000)
+            except Exception as e:
+                _log.warning("  fallback goto falhou: %s: %s", type(e).__name__, e)
+                erro_ultimo = f"popup '{termo}' + fallback navegacao falhou: {e}"
+                debug_acumulado.append({"termo": termo, "popup_url": url_alvo})
+                continue
+
+            with contextlib.suppress(Exception):
+                await _wait_pf_ajax(page, timeout=15000)
+            # Polling do cabecalho na janela principal — 15s
+            # Usa o mesmo `js_detect_header` (3 padroes aceitos)
+            with contextlib.suppress(PWTimeoutError, Exception):
+                await page.wait_for_function(
+                    js_detect_header,
+                    timeout=15000,
+                    polling=250,
+                )
+                tem_header = True
+            await page.wait_for_timeout(500)
+
+            if tem_header:
+                _log.info(
+                    "  fallback OK — janela principal carregou detalhamento de %s",
+                    page.url,
+                )
+                page_detalhe = page
+                sucesso = True
+                break
+
+            # Mesmo o fallback falhou — dumpa tudo pra diagnostico
+            with contextlib.suppress(Exception):
+                pasta_dbg = await _dump_debug_paj(
+                    page, paj_texto,
+                    f"popup '{termo}' nao renderizou + fallback nao carregou cabecalho",
+                    extras={
+                        "termo": termo,
+                        "popup_url_inicial": popup_url_inicial,
+                        "popup_url_final": popup_url_final,
+                        "url_alvo": url_alvo,
+                        "page_url_pos_goto": page.url,
+                    },
+                )
+                _log.warning("  dump salvo em %s", pasta_dbg)
+
+            erro_ultimo = (
+                f"popup '{termo}' nao renderizou e fallback (goto {url_alvo}) "
+                f"tambem nao mostrou cabecalho"
+            )
+            debug_acumulado.append({"termo": termo, "popup_url": url_alvo})
+            # Volta pra caixa antes de proxima tentativa
+            with contextlib.suppress(Exception):
+                await page.goto(
+                    f"{SISDPU_URL}/pages/caixaentrada/caixaEntrada.xhtml",
+                    wait_until="domcontentloaded",
+                )
+                await _wait_pf_ajax(page, timeout=10000)
             continue
 
         # Fallback: a janela atual pode ter navegado para o detalhamento
@@ -766,6 +894,15 @@ async def buscar_paj_global(
     # atual OU um popup aberto por window.open. Substituimos a referencia
     # `page` localmente para que o resto do codigo continue limpo.
     page = page_detalhe
+
+    # Caso o popup tenha sido capturado, promove ele a "page global" — assim
+    # operacoes posteriores que dependem de `_get_page()` (ex: listar_arquivos_paj
+    # → baixar anexos) atuam no detalhamento do PAJ, e nao na caixa de entrada
+    # antiga. Sem isso, sincronizar um PAJ da watchlist via busca global nao
+    # conseguiria baixar anexos. Quando `page_detalhe` ja e' a propria `_page`
+    # (busca navegou a janela atual em vez de abrir popup), a atribuicao e' no-op.
+    global _page
+    _page = page_detalhe
 
     # Extrai os campos do cabecalho do detalhamento. Estrategia hibrida:
     # (1) DOM-based para label/valor (mais robusto que regex no innerText)
@@ -846,11 +983,21 @@ async def buscar_paj_global(
                 'Decurso', 'Decurso agendado', 'Decurso Agendado'
             ]);
 
-            // ---------- PAJ + status (linha "AAAA/UUU-NNNNN - PAJ STATUS") ----------
-            const pajMatch = body.match(/(\\d{4}\\/\\d{3}-\\d+)\\s*-\\s*PAJ\\s+([^\\n]+)/);
+            // ---------- PAJ + status — duas variantes da tela ----------
+            //  a) Formato compacto: "AAAA/UUU-NNNNN - PAJ STATUS"
+            //  b) Formato tabular:  "Número do PAJ\tAAAA/UUU-NNNNN"  (nesta tela,
+            //     o status vem em outra linha, ex: "Urgente" / "Tutela Coletiva".
+            //     Deixamos status vazio se nao houver formato compacto.)
+            let pajMatch = body.match(/(\\d{4}\\/\\d{3}-\\d+)\\s*-\\s*PAJ\\s+([^\\n]+)/);
             if (pajMatch) {
                 r.paj = pajMatch[1];
                 r.status_paj = pajMatch[2].trim();
+            } else {
+                pajMatch = body.match(/N[úu]mero\\s+do\\s+PAJ[\\s\\t]+(\\d{4}\\/\\d{3}-\\d+)/);
+                if (pajMatch) {
+                    r.paj = pajMatch[1];
+                    r.status_paj = '';
+                }
             }
 
             // ---------- Numero do processo judicial (padrao CNJ) ----------

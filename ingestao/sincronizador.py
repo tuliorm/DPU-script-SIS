@@ -578,15 +578,63 @@ async def _processar_paj(
     deve_cancelar: Callable[[], bool] | None = None,
     baixar_anexos: bool = True,
 ) -> tuple[str, bool]:
-    """Processa um PAJ. Retorna (paj_norm, novo_ou_atualizado).
+    """Processa um PAJ vindo da CAIXA DE ENTRADA. Retorna (paj_norm, novo_ou_atualizado).
 
     `deve_cancelar` e' propagado ate o OCR pra permitir cancelamento imediato
     durante processamento de um unico PAJ com PDFs grandes.
 
     `baixar_anexos=False` pula o download/OCR da aba 'Arquivos' — util pra
     sincronizacao rapida (so movs/metadata).
+
+    PRE-CONDICAO: o PAJ esta na caixa atual (item veio do scrape da caixa).
+    Para PAJs fora da caixa (concluidos, ex: watchlist), use
+    `rodar_paj_via_busca_global` que entra pelo campo de pesquisa do SIS.
     """
     paj = item.get("paj", "")
+    dec = _decompor_paj(paj)
+    if not dec:
+        log(f"  [skip] PAJ mal-formado: {paj!r}")
+        return ("", False)
+    ano, unidade, numero = dec
+    paj_norm = _normalizar_paj(paj)
+
+    log(f"  [sisdpu] abrindo detalhamento {paj}")
+    try:
+        det = await sisdpu_client.movimentacoes_paj(numero, ano, unidade)
+    except Exception as e:
+        log(f"  [ERRO] movimentacoes_paj {paj}: {type(e).__name__}: {e}")
+        return (paj_norm, False)
+
+    if det.get("erro"):
+        log(f"  [ERRO] {det['erro']}")
+        return (paj_norm, False)
+
+    return await _processar_paj_pos_detalhamento(
+        item, det, log,
+        deve_cancelar=deve_cancelar,
+        baixar_anexos=baixar_anexos,
+        via_busca_global=False,
+    )
+
+
+async def _processar_paj_pos_detalhamento(
+    item: dict,
+    det: dict,
+    log: Callable[[str], None],
+    deve_cancelar: Callable[[], bool] | None = None,
+    baixar_anexos: bool = True,
+    via_busca_global: bool = False,
+) -> tuple[str, bool]:
+    """Etapa pos-detalhamento: a page do Playwright ja esta no detalhamento do
+    PAJ (via clique na caixa ou via campo de pesquisa global) e `det` ja foi
+    extraido. Grava sisdpu.txt/metadata.json, detecta prazos, baixa anexos.
+
+    `via_busca_global=True`: nao sobrescreve `em_caixa_atual` (preserva o
+    valor anterior — a busca global nao responde se o PAJ ainda esta na
+    caixa do defensor), e preserva `etiqueta_sisdpu` do metadata antigo
+    (o campo de pesquisa do SIS nao expoe a etiqueta da caixa).
+    """
+    paj = item.get("paj", "") or det.get("paj", "")
     dec = _decompor_paj(paj)
     if not dec:
         log(f"  [skip] PAJ mal-formado: {paj!r}")
@@ -599,10 +647,12 @@ async def _processar_paj(
 
     # Captura movs antigas ANTES de sobrescrever metadata.json — usado pra
     # detectar intimacoes/citacoes novas e enviar pro calendar-pendentes.
+    # Tambem preserva campos de ciclo de vida quando vindo pela busca global.
     movs_antigas: list[dict] = []
     assistido_prev = ""
     sync_incompleto_anterior = False
     sync_incompleto_em_anterior = ""
+    meta_antiga: dict = {}
     try:
         meta_path_antiga = pasta / "metadata.json"
         if meta_path_antiga.exists():
@@ -614,17 +664,7 @@ async def _processar_paj(
             sync_incompleto_em_anterior = meta_antiga.get("sync_incompleto_em", "")
     except Exception:
         movs_antigas = []
-
-    log(f"  [sisdpu] abrindo detalhamento {paj}")
-    try:
-        det = await sisdpu_client.movimentacoes_paj(numero, ano, unidade)
-    except Exception as e:
-        log(f"  [ERRO] movimentacoes_paj {paj}: {type(e).__name__}: {e}")
-        return (paj_norm, False)
-
-    if det.get("erro"):
-        log(f"  [ERRO] {det['erro']}")
-        return (paj_norm, False)
+        meta_antiga = {}
 
     texto_sisdpu = _montar_sisdpu_txt(item, det)
     (pasta / "sisdpu.txt").write_text(texto_sisdpu, encoding="utf-8")
@@ -638,12 +678,26 @@ async def _processar_paj(
     # Snapshot da estrutura bruta devolvida pelo SISDPU para diagnostico/posteridade
     metadata["sisdpu_raw"] = det
 
-    # Marca explicitamente: este PAJ esta na caixa atual
-    metadata["em_caixa_atual"] = True
-
-    # Etiqueta SISDPU (rotulo livre aplicado pelo Defensor na caixa, tipo "Aleg finais")
-    etiqueta = (item.get("etiqueta") or "").strip()
-    metadata["etiqueta_sisdpu"] = etiqueta
+    if via_busca_global:
+        # Busca global nao da informacao sobre estar na caixa atual — preserva
+        # o que tinhamos (se houver). Tambem nao tem acesso a etiqueta da
+        # caixa, entao mantemos a antiga.
+        if "em_caixa_atual" in meta_antiga:
+            metadata["em_caixa_atual"] = meta_antiga["em_caixa_atual"]
+        metadata["etiqueta_sisdpu"] = meta_antiga.get("etiqueta_sisdpu", "") or ""
+        # Campos de ciclo de vida que nao vem do detalhamento — preservar.
+        for k in (
+            "via_watchlist", "concluido_em", "arquivado_em",
+            "n_anexos_removidos", "anexos_removidos_em",
+        ):
+            if k in meta_antiga:
+                metadata[k] = meta_antiga[k]
+    else:
+        # Marca explicitamente: este PAJ esta na caixa atual
+        metadata["em_caixa_atual"] = True
+        # Etiqueta SISDPU (rotulo livre aplicado pelo Defensor na caixa, tipo "Aleg finais")
+        etiqueta = (item.get("etiqueta") or "").strip()
+        metadata["etiqueta_sisdpu"] = etiqueta
 
     (pasta / "metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2, default=str),
@@ -1284,6 +1338,189 @@ async def rodar_paj_unico(
         f"anexos_listados={resumo['anexos']}, "
         f"arquivos_baixados={resumo['baixados']}, "
         f"erros={len(resumo['erros'])}")
+    return resumo
+
+
+async def rodar_paj_via_busca_global(
+    paj_identificador: str,
+    log_callback: Callable[[str], None],
+    deve_cancelar: Callable[[], bool] | None = None,
+    baixar_anexos: bool = True,
+) -> dict:
+    """Sincroniza UM PAJ via o campo de pesquisa global do SIS-DPU.
+
+    Diferente de `rodar_paj_unico`, NAO depende do PAJ estar na caixa de
+    entrada do defensor — entra pela "Pesquisa Rapida" do header e cai
+    direto no detalhamento do processo. Usado para PAJs da watchlist, que
+    podem ter sido concluidos (fora da caixa) ou nunca ter passado por ela
+    (cadastrados individualmente).
+
+    Preservacao de metadata vs `rodar_paj_unico`:
+      - `em_caixa_atual` — preservado do metadata anterior (a busca global
+        nao responde se o PAJ ainda esta na caixa do defensor).
+      - `etiqueta_sisdpu` — preservada da rodada anterior (campo de pesquisa
+        nao expoe etiquetas da caixa).
+      - `via_watchlist`, `concluido_em`, `n_anexos_removidos` — preservados.
+
+    `paj_identificador` aceita 'PAJ-2026-044-00311' ou '2026/044-00311'.
+    """
+    def log(msg: str) -> None:
+        with contextlib.suppress(Exception):
+            log_callback(msg)
+
+    resumo: dict = {"paj": "", "processado": False, "anexos": 0, "baixados": 0, "erros": []}
+
+    alvo = paj_identificador.strip()
+    if alvo.startswith("PAJ-"):
+        resto = alvo[4:]
+        partes = resto.split("-", 1)
+        if len(partes) == 2:
+            alvo = f"{partes[0]}/{partes[1]}"
+
+    dec = _decompor_paj(alvo)
+    if not dec:
+        log(f"[busca-global] identificador invalido: {paj_identificador}")
+        resumo["erros"].append("identificador invalido")
+        return resumo
+    ano, unidade, numero = dec
+    paj_norm = _normalizar_paj(alvo)
+    resumo["paj"] = alvo
+
+    log(f"[busca-global] alvo: {alvo}")
+    log("[busca-global] pesquisando no campo global do SIS-DPU...")
+
+    try:
+        det = await sisdpu_client.buscar_paj_global(numero, ano, unidade)
+    except Exception as e:
+        log(f"[FATAL] falha na busca global: {type(e).__name__}: {e}")
+        resumo["erros"].append(f"busca: {e}")
+        with contextlib.suppress(Exception):
+            await sisdpu_client.fechar()
+        return resumo
+
+    if det.get("erro"):
+        log(f"[busca-global] sem resultado: {det['erro']}")
+        resumo["erros"].append(det["erro"])
+        with contextlib.suppress(Exception):
+            await sisdpu_client.fechar()
+        return resumo
+
+    if not baixar_anexos:
+        log("[busca-global] modo RÁPIDO — anexos NÃO serão baixados")
+
+    # Item sintetico — `etiqueta` ficaria nulo aqui (busca global nao expoe);
+    # _processar_paj_pos_detalhamento (com via_busca_global=True) le a etiqueta
+    # antiga do metadata.json existente, entao nao se perde a info entre syncs.
+    item_sintetico = {"paj": alvo}
+
+    try:
+        paj_norm_ret, ok = await _processar_paj_pos_detalhamento(
+            item_sintetico, det, log,
+            deve_cancelar=deve_cancelar,
+            baixar_anexos=baixar_anexos,
+            via_busca_global=True,
+        )
+        if ok:
+            resumo["processado"] = True
+            pasta = PAJS_DIR / paj_norm
+            try:
+                meta = json.loads((pasta / "metadata.json").read_text(encoding="utf-8"))
+                resumo["anexos"] = meta.get("n_anexos_sisdpu", 0)
+            except Exception:
+                pass
+            pasta_pecas = pasta / "pecas"
+            if pasta_pecas.exists():
+                resumo["baixados"] = sum(
+                    1 for f in pasta_pecas.iterdir()
+                    if f.is_file() and f.suffix.lower() != ".txt"
+                )
+    except Exception as e:
+        log(f"  [EXC] {type(e).__name__}: {e}")
+        resumo["erros"].append(f"{alvo}: {e}")
+
+    with contextlib.suppress(Exception):
+        await sisdpu_client.fechar()
+
+    log("=" * 60)
+    log(f"[busca-global] FIM: processado={resumo['processado']}, "
+        f"anexos_listados={resumo['anexos']}, "
+        f"arquivos_baixados={resumo['baixados']}, "
+        f"erros={len(resumo['erros'])}")
+    return resumo
+
+
+async def rodar_watchlist(
+    log_callback: Callable[[str], None],
+    deve_cancelar: Callable[[], bool] | None = None,
+    baixar_anexos: bool = True,
+) -> dict:
+    """Sincroniza todos os PAJs ATIVOS da watchlist via busca global do SIS-DPU.
+
+    Itera serialmente — entre PAJs, consulta `deve_cancelar` pra parar de
+    forma limpa. Reusa `rodar_paj_via_busca_global` (cada PAJ refaz login
+    com sessao fresca; e' caro mas garante estado limpo).
+
+    PAJs encerrados (`status=encerrado`) sao ignorados — a watchlist mantem
+    o registro pra historico, mas a sync so atualiza os ativos.
+    """
+    from services import watchlist_service
+
+    def log(msg: str) -> None:
+        with contextlib.suppress(Exception):
+            log_callback(msg)
+
+    resumo: dict = {
+        "total": 0,
+        "processados": 0,
+        "anexos_baixados": 0,
+        "erros": [],
+        "cancelado": False,
+    }
+
+    itens = [i for i in watchlist_service.listar() if i.get("status") == "ativo"]
+    resumo["total"] = len(itens)
+
+    if not itens:
+        log("[sync-watchlist] nenhum PAJ ativo na watchlist — nada a fazer")
+        return resumo
+
+    log(f"[sync-watchlist] {len(itens)} PAJ(s) ativo(s) na watchlist")
+    if not baixar_anexos:
+        log("[sync-watchlist] modo RÁPIDO — anexos NÃO serão baixados")
+
+    for idx, item in enumerate(itens, start=1):
+        if deve_cancelar is not None and deve_cancelar():
+            log(f"[sync-watchlist] CANCELADO apos {idx - 1} de {len(itens)}")
+            resumo["cancelado"] = True
+            break
+
+        paj_norm = item.get("paj_norm", "")
+        log("-" * 60)
+        log(f"[sync-watchlist] ({idx}/{len(itens)}) {paj_norm}")
+
+        try:
+            r = await rodar_paj_via_busca_global(
+                paj_norm, log_callback,
+                deve_cancelar=deve_cancelar,
+                baixar_anexos=baixar_anexos,
+            )
+            if r.get("processado"):
+                resumo["processados"] += 1
+                resumo["anexos_baixados"] += r.get("baixados", 0)
+            else:
+                erros_paj = r.get("erros", []) or ["nao processado"]
+                resumo["erros"].append(f"{paj_norm}: {'; '.join(erros_paj)}")
+        except Exception as e:
+            log(f"[sync-watchlist] EXC em {paj_norm}: {type(e).__name__}: {e}")
+            resumo["erros"].append(f"{paj_norm}: {type(e).__name__}: {e}")
+
+    log("=" * 60)
+    log(
+        f"[sync-watchlist] FIM: processados={resumo['processados']} de "
+        f"{resumo['total']}, anexos_baixados={resumo['anexos_baixados']}, "
+        f"erros={len(resumo['erros'])}"
+        + (" (cancelado)" if resumo["cancelado"] else "")
+    )
     return resumo
 
 

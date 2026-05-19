@@ -13,6 +13,7 @@ from services.sync_service import (
     rodar_sync,
     rodar_sync_paj,
     rodar_sync_anexos_desde_data,
+    rodar_sync_watchlist,
     solicitar_cancelamento,
 )
 
@@ -36,6 +37,12 @@ async def _stream_anexos_desde(paj_identificador: str, data_inicio: _dt.date):
     async for linha in rodar_sync_anexos_desde_data(paj_identificador, data_inicio):
         yield {"event": "log", "data": linha.rstrip("\n")}
     yield {"event": "done", "data": "Download de anexos finalizado"}
+
+
+async def _stream_watchlist(baixar_anexos: bool):
+    async for linha in rodar_sync_watchlist(baixar_anexos=baixar_anexos):
+        yield {"event": "log", "data": linha.rstrip("\n")}
+    yield {"event": "done", "data": "Sincronização da watchlist finalizada"}
 
 
 @router.get("/sync")
@@ -74,6 +81,18 @@ async def sync_anexos_desde(paj_norm: str, data: str = ""):
             status_code=400,
         )
     return EventSourceResponse(_stream_anexos_desde(paj_norm, data_inicio))
+
+
+@router.get("/sync/watchlist")
+async def sync_watchlist(anexos: int = 1):
+    """Sincroniza todos os PAJs ativos da watchlist via busca global do SIS-DPU.
+
+    Entra pela "Pesquisa Rapida" do header — funciona mesmo se o PAJ ja
+    saiu da caixa de entrada (concluido).
+
+    ?anexos=0 => modo rapido (pula download/OCR dos anexos).
+    """
+    return EventSourceResponse(_stream_watchlist(baixar_anexos=bool(anexos)))
 
 
 @router.post("/sync/cancel")

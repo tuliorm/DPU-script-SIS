@@ -17,7 +17,22 @@ from collections.abc import AsyncGenerator
 from config import SISDPU_PASSWORD, SISDPU_USERNAME, TIMEOUT_TOTAL
 from ingestao import sincronizador
 from ingestao.sisdpu_client import CredenciaisInvalidas
+from services import watchlist_service
 from services.paj_service import invalidar_cache_listagem
+
+
+def _paj_identificador_para_norm(paj_identificador: str) -> str:
+    """'2021/044-00635' ou 'PAJ-2021-044-00635' -> 'PAJ-2021-044-00635'.
+
+    Devolve string vazia se nao bater o formato esperado.
+    """
+    s = (paj_identificador or "").strip()
+    if s.startswith("PAJ-"):
+        return s
+    # Formato '2021/044-00635' (com / e -)
+    if "/" in s:
+        return "PAJ-" + s.replace("/", "-")
+    return ""
 
 
 _sync_lock = asyncio.Lock()
@@ -132,11 +147,48 @@ async def rodar_sync_paj(
 
     Reutiliza o mesmo lock global — evita que uma sync da caixa inteira colida
     com uma sync pontual, e vice-versa.
+
+    Despacha pela watchlist: PAJs marcados pelo defensor entram pelo campo
+    de pesquisa global do SIS-DPU (`rodar_paj_via_busca_global`) — funciona
+    mesmo se ja saiu da caixa (concluido). PAJs nao-watchlist seguem pela
+    caixa (`rodar_paj_unico`).
     """
+    paj_norm = _paj_identificador_para_norm(paj_identificador)
+    na_watchlist = bool(paj_norm) and watchlist_service.is_watched(paj_norm)
+
+    if na_watchlist:
+        async for linha in _rodar_com_cancel(
+            lambda emit: sincronizador.rodar_paj_via_busca_global(
+                paj_identificador, emit,
+                deve_cancelar=deve_cancelar, baixar_anexos=baixar_anexos,
+            ),
+            None,
+        ):
+            yield linha
+        return
+
     async for linha in _rodar_com_cancel(
         lambda emit: sincronizador.rodar_paj_unico(
             paj_identificador, emit,
             deve_cancelar=deve_cancelar, baixar_anexos=baixar_anexos,
+        ),
+        None,
+    ):
+        yield linha
+
+
+async def rodar_sync_watchlist(
+    baixar_anexos: bool = True,
+) -> AsyncGenerator[str, None]:
+    """Sincroniza TODOS os PAJs ativos da watchlist via SSE.
+
+    Cada PAJ entra pela "Pesquisa Rapida" do SIS-DPU — funciona mesmo para
+    os ja concluidos (fora da caixa). Reusa o mesmo lock global das demais
+    syncs, entao nao colide com sync da caixa ou de PAJ unico.
+    """
+    async for linha in _rodar_com_cancel(
+        lambda emit: sincronizador.rodar_watchlist(
+            emit, deve_cancelar=deve_cancelar, baixar_anexos=baixar_anexos,
         ),
         None,
     ):
