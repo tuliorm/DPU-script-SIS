@@ -49,6 +49,18 @@ def _normalizar_paj(paj: str) -> str:
     return "PAJ-" + paj.replace("/", "-")
 
 
+def _iso_para_br(iso: str) -> str:
+    """'2023-06-22' -> '22/06/2023'. Aceita ISO datetime tambem ('2023-06-22T...').
+    Devolve string vazia se entrada vazia; devolve a entrada original se nao
+    bater o formato esperado (defensivo)."""
+    if not iso:
+        return ""
+    s = str(iso)[:10]
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        return f"{s[8:10]}/{s[5:7]}/{s[0:4]}"
+    return str(iso)
+
+
 def _montar_sisdpu_txt(item_caixa: dict, det: dict) -> str:
     """Monta sisdpu.txt no mesmo formato dos arquivos existentes.
 
@@ -723,10 +735,15 @@ async def _processar_paj(
         )
         log(f"  [anexos] total={total_anexos} baixados={baixados} ocr={ocr_ok}")
         if overflow:
+            # Usa a data de INSTAURAÇÃO do PAJ (real, vinda do header do SIS),
+            # nao a data_min_disponivel calculada a partir do parser de descricao
+            # dos anexos (que pode resultar em datas ficcionais quando os anexos
+            # mais antigos nao trazem data parseavel — ex: 0001-01-01).
+            data_inst_br = _iso_para_br(metadata.get("data_abertura", "")) or "data de instauracao indisponivel"
             log(
                 f"  [anexos] OVERFLOW: {overflow['total_no_sisdpu'] - overflow['baixados']} "
                 f"anexo(s) mais antigos pendentes (use 'Baixar mais antigos' "
-                f"a partir de {overflow['data_min_disponivel']})"
+                f"desde a instauração do PAJ em {data_inst_br})"
             )
         if interrompido:
             log("  [warn] PAJ marcado como SINCRONIZACAO INCOMPLETA — re-sincronize antes de elaborar")
@@ -974,7 +991,9 @@ async def rodar(
                 "total_no_sisdpu": ov.get("total_no_sisdpu"),
                 "baixados": ov.get("baixados"),
                 "data_min_baixada": ov.get("data_min_baixada"),
-                "data_min_disponivel": ov.get("data_min_disponivel"),
+                # data de instauracao real do PAJ — usada no log abaixo no lugar
+                # da `data_min_disponivel` (que costuma ser ficcional 0001-01-01).
+                "data_abertura": meta.get("data_abertura", ""),
             })
         if meta.get("sync_incompleto"):
             pajs_incompletos.append({
@@ -987,10 +1006,12 @@ async def rodar(
         log("=" * 60)
         log(f"[sync] {len(pajs_overflow)} PAJ(s) com mais de {MAX_ANEXOS_POR_PAJ} anexos:")
         for p in pajs_overflow:
+            data_inst_br = _iso_para_br(p.get("data_abertura", "")) or "?"
+            data_min_br = _iso_para_br(p.get("data_min_baixada", "")) or "?"
             log(
                 f"  - {p['paj_norm']}: {p['baixados']}/{p['total_no_sisdpu']} baixados "
-                f"(mais antigo baixado: {p['data_min_baixada']}; "
-                f"mais antigo disponivel: {p['data_min_disponivel']})"
+                f"(mais antigo baixado: {data_min_br}; "
+                f"instaurado em: {data_inst_br})"
             )
         log("[sync] DICA: abra o PAJ → aba Anexos → 'Baixar mais antigos' "
             "para informar a data de corte e completar.")
@@ -1009,6 +1030,27 @@ async def rodar(
     log("=" * 60)
     log(f"[sync] FIM: {resumo['processados']}/{resumo['total_caixa']} processados, "
         f"{len(resumo['erros'])} erros")
+
+    # Marca este momento como "última sincronização da CAIXA INTEIRA". Usado
+    # pelo dashboard como "ultima_execucao" — diferente dos mtimes dos
+    # metadata.json individuais (que mudam tambem em sync de um PAJ unico,
+    # em sync de anexos-desde-data, e na busca leve via watchlist). Soh este
+    # marcador reflete uma varredura completa da caixa.
+    with contextlib.suppress(Exception):
+        from datetime import datetime as _dt2
+        marcador = PAJS_DIR / ".ultima_sync_caixa.json"
+        PAJS_DIR.mkdir(parents=True, exist_ok=True)
+        marcador.write_text(
+            json.dumps({
+                "em": _dt2.now().isoformat(timespec="seconds"),
+                "modo": "completa" if baixar_anexos else "rapida",
+                "total_caixa": resumo.get("total_caixa", 0),
+                "processados": resumo.get("processados", 0),
+                "erros": len(resumo.get("erros", [])),
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
     return resumo
 
 

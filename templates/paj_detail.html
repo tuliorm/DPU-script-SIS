@@ -514,7 +514,7 @@
         {% if meta.anexos_extras %}
         {% set ax = meta.anexos_extras %}
         <div class="alert alert-warning mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
             <div class="flex-1">
@@ -522,22 +522,25 @@
                 <p class="text-sm mt-1">
                     <strong>{{ ax.baixados }} de {{ ax.total_no_sisdpu }}</strong> anexos baixados
                     (limite padrão: {{ ax.limite_aplicado }}).
-                    Mais antigo baixado: <strong>{{ ax.data_min_baixada }}</strong>;
-                    mais antigo disponível no SISDPU: <strong>{{ ax.data_min_disponivel }}</strong>.
+                    Mais antigo baixado: <strong>{{ ax.data_min_baixada | data_br }}</strong>.
+                    É possível baixar desde a data de instauração do PAJ
+                    (<strong>{{ meta.data_abertura | data_br }}</strong>).
                 </p>
-                <p class="text-xs mt-1 text-base-content/70">
+                <p class="text-sm mt-2 font-medium">
                     Para completar, escolha uma data de corte — todos os anexos com data ≥ essa
                     serão baixados (sem limite de quantidade).
                 </p>
-                <div class="flex flex-wrap items-end gap-2 mt-3">
+                <div class="flex flex-wrap items-center gap-2 mt-3">
                     <label class="form-control">
-                        <span class="label-text text-xs">Baixar a partir de:</span>
+                        <span class="label-text text-sm font-semibold !text-black">
+                            Baixar a partir de:
+                        </span>
                         <input type="date" id="anexos-desde-data"
-                               value="{{ ax.data_min_disponivel }}"
+                               value="{{ meta.data_abertura }}"
                                max="{{ ax.data_min_baixada }}"
-                               class="input input-bordered input-sm" />
+                               class="input input-bordered input-sm !bg-gray-300 !text-black !border-gray-500" />
                     </label>
-                    <button class="btn btn-warning btn-sm"
+                    <button class="btn btn-primary btn-sm"
                             onclick="baixarAnexosDesde('{{ paj_norm }}')">
                         Baixar mais antigos
                     </button>

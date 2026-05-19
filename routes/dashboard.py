@@ -1,5 +1,8 @@
 """Rota do dashboard — lista PAJs do workspace Oficio Geral."""
 
+import contextlib
+import json
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -36,18 +39,35 @@ async def api_pajs(concluidos: int = 0, arquivados: int = 0):
     total_concluidos = 0
     if not incluir:
         total_concluidos = len(listar_pajs(incluir_concluidos=True)) - len(pajs)
-    # "ultima_execucao" vira mtime mais recente de qualquer metadata.json do workspace
+
+    # "ultima_execucao" reflete a ultima vez que a CAIXA INTEIRA foi
+    # sincronizada (rapida ou completa). Le do marcador gravado pelo
+    # sincronizador.rodar(). Sync de um PAJ unico, busca leve via watchlist
+    # ou download de anexos-desde-data NAO atualizam esse campo —
+    # propositalmente, para que o dashboard nao "pareça" mais fresco do que
+    # realmente está. Fallback para o mtime mais recente apenas se o
+    # marcador ainda nao existir (workspace antigo, primeiro uso).
     ultima_execucao = ""
-    try:
-        mtimes = [
-            p.stat().st_mtime
-            for p in PAJS_DIR.glob("PAJ-*/metadata.json")
-        ]
-        if mtimes:
-            import datetime as _dt
-            ultima_execucao = _dt.datetime.fromtimestamp(max(mtimes)).isoformat()
-    except Exception:
-        pass
+    marcador = PAJS_DIR / ".ultima_sync_caixa.json"
+    if marcador.exists():
+        with contextlib.suppress(Exception):
+            dados = json.loads(marcador.read_text(encoding="utf-8"))
+            ultima_execucao = dados.get("em", "")
+    if not ultima_execucao:
+        # Fallback de compatibilidade: workspace sem marcador (nunca rodou
+        # sync nesta versao do painel). Pega o mtime mais recente como
+        # aproximacao.
+        try:
+            mtimes = [
+                p.stat().st_mtime
+                for p in PAJS_DIR.glob("PAJ-*/metadata.json")
+            ]
+            if mtimes:
+                import datetime as _dt
+                ultima_execucao = _dt.datetime.fromtimestamp(max(mtimes)).isoformat()
+        except Exception:
+            pass
+
     return {
         "pajs": pajs,
         "ultima_execucao": ultima_execucao,
