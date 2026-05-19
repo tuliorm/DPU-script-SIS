@@ -760,7 +760,8 @@ def _apagar_anexos_pasta(pasta: Path, log: Callable[[str], None]) -> tuple[int, 
     """Apaga binarios em pasta/pecas/, preservando .txt OCR companions.
 
     Retorna (n_removidos, bytes_liberados). Usado na transicao de PAJ para
-    "arquivado" — libera espaco mantendo OCR extraido e registros na raiz.
+    "concluido" (fora-da-caixa) — libera espaco mantendo OCR extraido e
+    registros na raiz.
     """
     pasta_pecas = pasta / "pecas"
     if not pasta_pecas.exists() or not pasta_pecas.is_dir():
@@ -782,24 +783,28 @@ def _apagar_anexos_pasta(pasta: Path, log: Callable[[str], None]) -> tuple[int, 
     return (removidos, bytes_lib)
 
 
-def _reconciliar_arquivados(
+def _reconciliar_concluidos(
     pajs_na_caixa: set[str],
     log: Callable[[str], None],
 ) -> int:
-    """Marca em_caixa_atual=False para pastas PAJs/PAJ-* que nao estao na caixa atual.
+    """Marca em_caixa_atual=False para pastas PAJs/PAJ-* que nao estao na
+    caixa atual. Aqui "concluido" significa apenas "saiu da caixa de entrada"
+    — o PAJ pode ter sido formalmente arquivado, tramitado, finalizado etc.;
+    a distincao formal de arquivamento e' um status do SIS-DPU (status_paj).
 
     - PAJs na caixa ja foram marcados True durante _processar_paj.
-    - PAJs no disco mas fora da caixa (antigos, arquivados, sairam do ofício): False.
-    - Na TRANSICAO de ativo->arquivado, apaga automaticamente os anexos binarios
-      (pecas/*.pdf, etc.), preservando OCR companions e registros na raiz.
-    Retorna numero de PAJs arquivados nesta rodada.
+    - PAJs no disco mas fora da caixa (antigos, concluidos, sairam do oficio): False.
+    - Na TRANSICAO de ativo->concluido, apaga automaticamente os anexos
+      binarios (pecas/*.pdf, etc.), preservando OCR companions e registros
+      na raiz.
+    Retorna numero de PAJs concluidos nesta rodada.
     """
     if not PAJS_DIR.exists():
         return 0
 
     from datetime import datetime
 
-    arquivados = 0
+    concluidos = 0
     for pasta in PAJS_DIR.iterdir():
         if not pasta.is_dir() or not pasta.name.startswith("PAJ-"):
             continue
@@ -815,21 +820,23 @@ def _reconciliar_arquivados(
             continue
 
         if meta.get("em_caixa_atual") is False:
-            continue  # ja arquivado em sync anterior
+            continue  # ja concluido em sync anterior
 
         # PAJ adicionado via watchlist (busca explicita do defensor) que NUNCA
-        # passou pela caixa nao deve ser arquivado pela reconciliacao — ele
+        # passou pela caixa nao deve ser concluido pela reconciliacao — ele
         # simplesmente nao esta no dominio da caixa. Sem essa excecao, qualquer
-        # sync da caixa o marcaria arquivado e apagaria anexos que o defensor
+        # sync da caixa o marcaria concluido e apagaria anexos que o defensor
         # baixou manualmente via botao "Sincronizar". So entra no fluxo de
-        # arquivamento se um dia tiver sido visto na caixa (em_caixa_atual=True).
+        # conclusao se um dia tiver sido visto na caixa (em_caixa_atual=True).
         if meta.get("via_watchlist") and meta.get("em_caixa_atual") is not True:
             continue
 
-        # Transicao ativo -> arquivado
+        # Transicao ativo -> concluido
         agora = datetime.now().isoformat(timespec="seconds")
         meta["em_caixa_atual"] = False
-        meta["arquivado_em"] = agora
+        meta["concluido_em"] = agora
+        # Limpa campo legado se presente (compat com metadata.json antigos)
+        meta.pop("arquivado_em", None)
 
         # Auto-delete dos anexos binarios (preservando OCR e registros)
         n_removidos, bytes_lib = _apagar_anexos_pasta(pasta, log)
@@ -839,22 +846,22 @@ def _reconciliar_arquivados(
             hist.append(agora)
             meta["anexos_removidos_em"] = hist
             log(
-                f"  [arquivado] {pasta.name}: {n_removidos} anexo(s) removido(s) "
+                f"  [concluido] {pasta.name}: {n_removidos} anexo(s) removido(s) "
                 f"({bytes_lib / 1024:.0f} KB liberados)"
             )
         else:
-            log(f"  [arquivado] {pasta.name}")
+            log(f"  [concluido] {pasta.name}")
 
         try:
             meta_path.write_text(
                 json.dumps(meta, ensure_ascii=False, indent=2, default=str),
                 encoding="utf-8",
             )
-            arquivados += 1
+            concluidos += 1
         except Exception as e:
-            log(f"  [warn] falha ao arquivar {pasta.name}: {e}")
+            log(f"  [warn] falha ao concluir {pasta.name}: {e}")
 
-    return arquivados
+    return concluidos
 
 
 async def rodar(
@@ -880,7 +887,7 @@ async def rodar(
         except Exception:
             return False
 
-    resumo: dict = {"total_caixa": 0, "processados": 0, "arquivados": 0, "erros": [], "cancelado": False}
+    resumo: dict = {"total_caixa": 0, "processados": 0, "concluidos": 0, "erros": [], "cancelado": False}
     pajs_na_caixa: set[str] = set()
 
     log("[sync] iniciando sincronização SISDPU")
@@ -936,19 +943,17 @@ async def rodar(
         await sisdpu_client.fechar()
 
     # Se foi cancelado, pula reconciliacao (dados incompletos — nao queremos
-    # arquivar PAJs que ainda nao foram visitados)
+    # concluir PAJs que ainda nao foram visitados)
     if resumo["cancelado"]:
         log("[sync] reconciliação SALTADA (sync cancelada — dados parciais)")
         return resumo
 
-    # Reconciliacao: PAJs no disco fora da caixa sao arquivados (em_caixa_atual=False)
-    log("[sync] reconciliando PAJs arquivados (fora da caixa)...")
-    arquivados = _reconciliar_arquivados(pajs_na_caixa, log)
-    resumo["arquivados"] = arquivados
-    if arquivados:
-        log(f"[sync] {arquivados} PAJ(s) marcados como arquivados")
-    else:
-        log("[sync] nenhum PAJ novo a arquivar")
+    # Reconciliacao: PAJs no disco fora da caixa sao marcados em_caixa_atual=False.
+    log("[sync] reconciliando PAJs concluídos (fora da caixa)...")
+    concluidos = _reconciliar_concluidos(pajs_na_caixa, log)
+    resumo["concluidos"] = concluidos
+    if concluidos:
+        log(f"[sync] {concluidos} PAJ(s) marcados como concluídos")
 
     # Resumo de PAJs com anexos pendentes (overflow do limite de 30) e
     # PAJs com sincronizacao incompleta (cancelados mid-PAJ).
@@ -1003,7 +1008,7 @@ async def rodar(
 
     log("=" * 60)
     log(f"[sync] FIM: {resumo['processados']}/{resumo['total_caixa']} processados, "
-        f"{resumo['arquivados']} arquivados, {len(resumo['erros'])} erros")
+        f"{len(resumo['erros'])} erros")
     return resumo
 
 

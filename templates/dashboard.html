@@ -85,11 +85,11 @@
     </div>
 
     <div class="flex items-center gap-3 pt-1">
-      <label class="flex items-center gap-2 cursor-pointer select-none" x-show="mostrarArquivados || totalArquivados > 0">
-        <input type="checkbox" class="toggle toggle-sm toggle-primary" x-model="mostrarArquivados" @change="recarregar()">
+      <label class="flex items-center gap-2 cursor-pointer select-none" x-show="mostrarConcluidos || totalConcluidos > 0">
+        <input type="checkbox" class="toggle toggle-sm toggle-primary" x-model="mostrarConcluidos" @change="recarregar()">
         <span class="text-sm text-base-content/70">
           Mostrar concluídos
-          <span class="text-base-content/40 tnum" x-show="!mostrarArquivados && totalArquivados > 0" x-text="`(+${totalArquivados})`"></span>
+          <span class="text-base-content/40 tnum" x-show="!mostrarConcluidos && totalConcluidos > 0" x-text="`(+${totalConcluidos})`"></span>
         </span>
       </label>
       <div class="join">
@@ -398,8 +398,8 @@ function dashboardApp() {
         pajs: [],
         pajsFiltrados: [],
         ultimaExecucao: '',
-        totalArquivados: 0,
-        mostrarArquivados: false,
+        totalConcluidos: 0,
+        mostrarConcluidos: false,
         filtroOficio: '',
         filtroForo: '',
         filtroClassif: '',
@@ -416,12 +416,12 @@ function dashboardApp() {
         },
 
         async recarregar() {
-            const url = '/api/pajs' + (this.mostrarArquivados ? '?arquivados=1' : '');
+            const url = '/api/pajs' + (this.mostrarConcluidos ? '?concluidos=1' : '');
             const resp = await fetch(url);
             const data = await resp.json();
             this.pajs = data.pajs || [];
             this.ultimaExecucao = data.ultima_execucao || '';
-            this.totalArquivados = data.total_arquivados || 0;
+            this.totalConcluidos = data.total_concluidos || 0;
             this.aplicarFiltros();
         },
 

@@ -21,17 +21,21 @@ async def dashboard(request: Request):
 
 
 @router.get("/api/pajs", response_class=JSONResponse)
-async def api_pajs(arquivados: int = 0):
+async def api_pajs(concluidos: int = 0, arquivados: int = 0):
     """Lista PAJs pro dashboard.
 
-    ?arquivados=1 -> inclui tambem PAJs que sairam da caixa em sync anterior.
+    ?concluidos=1 -> inclui tambem PAJs que sairam da caixa em sync anterior.
     Por padrao so retorna em_caixa_atual.
+
+    O parametro legado `arquivados` continua sendo aceito (alias do
+    `concluidos`) para nao quebrar bookmarks/scripts antigos.
     """
-    pajs = listar_pajs(incluir_arquivados=bool(arquivados))
-    # Conta total de arquivados no workspace (pra mostrar no toggle)
-    total_arquivados = 0
-    if not arquivados:
-        total_arquivados = len(listar_pajs(incluir_arquivados=True)) - len(pajs)
+    incluir = bool(concluidos or arquivados)
+    pajs = listar_pajs(incluir_concluidos=incluir)
+    # Conta total de concluidos no workspace (pra mostrar no toggle)
+    total_concluidos = 0
+    if not incluir:
+        total_concluidos = len(listar_pajs(incluir_concluidos=True)) - len(pajs)
     # "ultima_execucao" vira mtime mais recente de qualquer metadata.json do workspace
     ultima_execucao = ""
     try:
@@ -47,5 +51,5 @@ async def api_pajs(arquivados: int = 0):
     return {
         "pajs": pajs,
         "ultima_execucao": ultima_execucao,
-        "total_arquivados": total_arquivados,
+        "total_concluidos": total_concluidos,
     }

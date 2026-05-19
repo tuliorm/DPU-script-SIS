@@ -23,13 +23,13 @@ router = APIRouter(prefix="/api")
 async def _stream(baixar_anexos: bool):
     async for linha in rodar_sync(baixar_anexos=baixar_anexos):
         yield {"event": "log", "data": linha.rstrip("\n")}
-    yield {"event": "done", "data": "Sincronizacao finalizada"}
+    yield {"event": "done", "data": "Sincronização finalizada"}
 
 
 async def _stream_paj(paj_identificador: str, baixar_anexos: bool):
     async for linha in rodar_sync_paj(paj_identificador, baixar_anexos=baixar_anexos):
         yield {"event": "log", "data": linha.rstrip("\n")}
-    yield {"event": "done", "data": "Sincronizacao do PAJ finalizada"}
+    yield {"event": "done", "data": "Sincronização do PAJ finalizada"}
 
 
 async def _stream_anexos_desde(paj_identificador: str, data_inicio: _dt.date):
@@ -81,7 +81,7 @@ async def sync_cancel():
     """Sinaliza o worker de sync atual para parar na proxima oportunidade.
 
     O sincronizador consulta o flag entre PAJs e aborta o laco de forma limpa
-    (sem arquivar PAJs por engano). Se nao houver sync rodando, retorna 404.
+    (sem concluir PAJs por engano). Se nao houver sync rodando, retorna 404.
     """
     if not esta_rodando():
         return {"ok": False, "motivo": "nenhuma sync em andamento"}

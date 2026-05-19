@@ -105,7 +105,7 @@ def _garantir_prompt_max(pasta: Path) -> None:
         gerar_prompt_max(pasta.name)
 
 
-MAX_ARQUIVADOS_VISIVEIS = 100
+MAX_CONCLUIDOS_VISIVEIS = 100
 
 
 # Cache em memoria de listar_pajs() — dashboard chama isso a cada navegacao,
@@ -138,19 +138,32 @@ def invalidar_cache_listagem() -> None:
     _list_cache["key"] = None
 
 
-def listar_pajs(incluir_arquivados: bool = False) -> list[dict]:
+def _ler_concluido_em(metadata: dict) -> str:
+    """Le o timestamp em que o PAJ saiu da caixa (foi 'concluido').
+
+    Aceita os dois nomes de campo: o atual `concluido_em` e o legado
+    `arquivado_em` (de PAJs sincronizados antes do rename). Conforme cada
+    PAJ for re-sincronizado, o metadata passa a usar so' o nome novo —
+    leitura tolerante garante zero quebra para PAJs ainda nao atualizados.
+    """
+    return metadata.get("concluido_em") or metadata.get("arquivado_em", "")
+
+
+def listar_pajs(incluir_concluidos: bool = False) -> list[dict]:
     """Retorna lista resumida de PAJs pro dashboard.
 
+    "Concluido" aqui significa apenas "fora da caixa de entrada" (o PAJ
+    saiu da caixa, podendo ou nao estar formalmente arquivado no SIS).
     Por padrao retorna apenas PAJs em_caixa_atual (True ou campo ausente —
     legado sem o flag ainda conta como ativo ate a proxima sync). Quando
-    incluir_arquivados=True, devolve tambem os que sairam da caixa, limitado
-    aos MAX_ARQUIVADOS_VISIVEIS mais recentes (ordenados por arquivado_em
-    desc). PAJs mais antigos permanecem no disco (com registros/OCR) mas
-    nao aparecem mais na lista.
+    incluir_concluidos=True, devolve tambem os que sairam da caixa,
+    limitado aos MAX_CONCLUIDOS_VISIVEIS mais recentes (ordenados por
+    concluido_em desc). PAJs mais antigos permanecem no disco (com
+    registros/OCR) mas nao aparecem mais na lista.
 
     Resultado cacheado em memoria por _LIST_CACHE_TTL_SEG segundos (e ate o
     PAJS_DIR mudar de assinatura — vide _dir_signature)."""
-    chave = ("incluir" if incluir_arquivados else "ativos", *_dir_signature())
+    chave = ("incluir" if incluir_concluidos else "ativos", *_dir_signature())
     agora = time.monotonic()
     if (
         _list_cache["result"] is not None
@@ -160,7 +173,7 @@ def listar_pajs(incluir_arquivados: bool = False) -> list[dict]:
         return _list_cache["result"]
 
     ativos: list[dict] = []
-    arquivados: list[dict] = []
+    concluidos: list[dict] = []
 
     if not PAJS_DIR.exists():
         return []
@@ -173,10 +186,10 @@ def listar_pajs(incluir_arquivados: bool = False) -> list[dict]:
         if not metadata:
             continue
 
-        # Filtro de arquivados: so exclui se o flag esta EXPLICITAMENTE False
+        # Filtro de concluidos: so exclui se o flag esta EXPLICITAMENTE False
         em_caixa = metadata.get("em_caixa_atual")
-        esta_arquivado = em_caixa is False
-        if esta_arquivado and not incluir_arquivados:
+        esta_concluido = em_caixa is False
+        if esta_concluido and not incluir_concluidos:
             continue
 
         # PAJs adicionados via watchlist (busca explicita pelo defensor) NAO
@@ -239,8 +252,8 @@ def listar_pajs(incluir_arquivados: bool = False) -> list[dict]:
             "ultima_mov_desc": (ultima_mov.get("descricao") or "")[:120],
             "ultima_mov_data": ultima_mov.get("data", ""),
             "status_sisdpu": (det.get("status_paj") or "").strip(),
-            "em_caixa_atual": not esta_arquivado,
-            "arquivado_em": metadata.get("arquivado_em", "") if esta_arquivado else "",
+            "em_caixa_atual": not esta_concluido,
+            "concluido_em": _ler_concluido_em(metadata) if esta_concluido else "",
             "sync_incompleto": bool(metadata.get("sync_incompleto", False)),
             "sync_incompleto_motivo": metadata.get("sync_incompleto_motivo", ""),
             # Estado atual usado pelo frontend pra detectar novidades desde a
@@ -248,17 +261,17 @@ def listar_pajs(incluir_arquivados: bool = False) -> list[dict]:
             # static/js/app.js -> calcularNovidades().
             "max_seq_mov": max_seq_mov,
         }
-        if esta_arquivado:
-            arquivados.append(item)
+        if esta_concluido:
+            concluidos.append(item)
         else:
             ativos.append(item)
 
-    # Cap: mostra so os MAX_ARQUIVADOS_VISIVEIS mais recentes (por arquivado_em desc).
-    # PAJs legados sem arquivado_em caem no fim (sort por string vazia ordena antes).
-    arquivados.sort(key=lambda p: p.get("arquivado_em") or "", reverse=True)
-    arquivados = arquivados[:MAX_ARQUIVADOS_VISIVEIS]
+    # Cap: mostra so os MAX_CONCLUIDOS_VISIVEIS mais recentes (por concluido_em desc).
+    # PAJs legados sem concluido_em caem no fim (sort por string vazia ordena antes).
+    concluidos.sort(key=lambda p: p.get("concluido_em") or "", reverse=True)
+    concluidos = concluidos[:MAX_CONCLUIDOS_VISIVEIS]
 
-    resultado = ativos + arquivados
+    resultado = ativos + concluidos
     _list_cache["ts"] = agora
     _list_cache["key"] = chave
     _list_cache["result"] = resultado
@@ -398,7 +411,7 @@ def limpar_anexos_paj(
     Safeguards (consultados via dry_run; execute requer `forcar=True` se
     algum seguranca falhar):
       1. Todos os anexos PDF/docx precisam ter .txt OCR nao-vazio ao lado
-      2. PAJ precisa estar ARQUIVADO (em_caixa_atual=False)
+      2. PAJ precisa estar CONCLUIDO (em_caixa_atual=False — fora da caixa)
          — PAJ ativo requer forcar=True (o usuario clicou "tenho certeza")
 
     Retorno:

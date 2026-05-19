@@ -1,8 +1,8 @@
 """Aba interna de Prazos — controle de prazos judiciais ativos.
 
 Mostra apenas prazos cujo PAJ ainda esta NA CAIXA do defensor (em_caixa_atual=True).
-PAJs concluidos/arquivados saem da caixa e seus prazos automaticos somem da tela
-sem deixar historico — controle leve, dinamico.
+PAJs concluidos (que sairam da caixa) tem seus prazos automaticos removidos
+da tela sem deixar historico — controle leve, dinamico.
 
 Prazos manuais (`manual=True`) sao excecao: aparecem mesmo se o paj_norm nao
 estiver na caixa (ou nem existir no workspace), pois o defensor explicitamente
@@ -47,7 +47,7 @@ async def pagina_prazos(request: Request):
 
 def _set_pajs_ativos() -> set[str]:
     """paj_norm dos PAJs em_caixa_atual=True (cache curto via paj_service)."""
-    return {p["paj_norm"] for p in listar_pajs(incluir_arquivados=False)}
+    return {p["paj_norm"] for p in listar_pajs(incluir_concluidos=False)}
 
 
 @router.get("/api/prazos", response_class=JSONResponse)
@@ -56,8 +56,8 @@ async def api_prazos():
 
     Regra:
       - Prazos automaticos (sem `manual=True`): so passam se paj_norm pertence
-        a um PAJ em_caixa_atual=True. PAJs concluidos/arquivados removem seus
-        prazos da tela sem deixar historico.
+        a um PAJ em_caixa_atual=True. PAJs concluidos (fora da caixa) tem
+        seus prazos removidos da tela sem deixar historico.
       - Prazos manuais (manual=True): sempre passam. O defensor optou por
         monitora-los e a logica de "PAJ fora da caixa = sem interesse" nao
         se aplica a entradas inseridas manualmente.
