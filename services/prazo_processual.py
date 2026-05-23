@@ -33,11 +33,11 @@ from __future__ import annotations
 
 import datetime as dt
 import unicodedata
-from enum import Enum
+from enum import StrEnum
 from functools import lru_cache
 
 
-class Rito(str, Enum):
+class Rito(StrEnum):
     CIVEL = "civel"
     JEF = "jef"
     PENAL = "penal"
@@ -102,9 +102,7 @@ def eh_recesso_forense(d: dt.date) -> bool:
     """True se a data esta entre 20/12 e 20/01 (inclusivos)."""
     if (d.month, d.day) >= RECESSO_INICIO_MES_DIA:
         return True
-    if (d.month, d.day) <= RECESSO_FIM_MES_DIA:
-        return True
-    return False
+    return (d.month, d.day) <= RECESSO_FIM_MES_DIA
 
 
 def eh_dia_util(d: dt.date) -> bool:
@@ -113,18 +111,14 @@ def eh_dia_util(d: dt.date) -> bool:
         return False
     if d in feriados_nacionais(d.year):
         return False
-    if eh_recesso_forense(d):
-        return False
-    return True
+    return not eh_recesso_forense(d)
 
 
 def eh_dia_util_penal(d: dt.date) -> bool:
     """Pra prorrogacao em prazo penal: ignora recesso forense."""
     if d.weekday() >= 5:
         return False
-    if d in feriados_nacionais(d.year):
-        return False
-    return True
+    return d not in feriados_nacionais(d.year)
 
 
 def proximo_dia_util(d: dt.date, *, penal: bool = False) -> dt.date:

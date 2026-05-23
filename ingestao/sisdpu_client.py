@@ -34,6 +34,28 @@ _log = logging.getLogger("sisdpu.busca")
 # falha — facilita o diagnostico (DOM real do SISDPU vs nossa heuristica).
 _DEBUG_DIR = Path(__file__).resolve().parents[1] / "logs" / "sisdpu_debug"
 
+# Retencao do diretorio de debug: pra nao acumular indefinidamente (cada dump
+# tem screenshot+HTML+body, ~1MB), mantem soh os N mais recentes. Suficiente
+# pra investigar a janela ativa de problemas sem inflar o repositorio.
+_DEBUG_DIR_RETER = 20
+
+
+def _purgar_debug_dir_antigos(reter: int = _DEBUG_DIR_RETER) -> None:
+    """Remove subpastas mais antigas de _DEBUG_DIR, mantendo apenas as `reter`
+    mais recentes (por mtime). Best-effort — qualquer erro e' suprimido pra
+    nao quebrar o fluxo principal."""
+    if not _DEBUG_DIR.exists():
+        return
+    with contextlib.suppress(Exception):
+        import shutil
+        subpastas = [p for p in _DEBUG_DIR.iterdir() if p.is_dir()]
+        if len(subpastas) <= reter:
+            return
+        subpastas.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for antigo in subpastas[reter:]:
+            with contextlib.suppress(Exception):
+                shutil.rmtree(antigo)
+
 
 class CredenciaisInvalidas(Exception):
     """SISDPU rejeitou usuario/senha no login."""
@@ -509,6 +531,9 @@ async def _dump_debug_paj(
     pasta = _DEBUG_DIR / f"{ts}_{slug}"
     pasta.mkdir(parents=True, exist_ok=True)
 
+    # Purga subpastas antigas pra evitar acumulo (cada dump pesa ~1MB).
+    _purgar_debug_dir_antigos()
+
     with contextlib.suppress(Exception):
         await page.screenshot(path=str(pasta / "screenshot.png"), full_page=True)
     with contextlib.suppress(Exception):
@@ -915,6 +940,8 @@ async def buscar_paj_global(
             const body = document.body.innerText;
 
             // ---------- Helper: encontra valor adjacente a um label ----------
+            // O regex inclui o ':' ASCII E o U+FF1A (fullwidth colon) porque labels
+            // do SISDPU aparecem com qualquer um dos dois, dependendo da fonte.
             const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim()
                                           .toLowerCase().replace(/[:：]$/, '');
 

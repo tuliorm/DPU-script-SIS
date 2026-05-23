@@ -110,7 +110,7 @@ def ler(paj_norm: str, limit: int | None = None) -> list[dict]:
     return eventos
 
 
-def _primeira_linha_util(texto: str) -> str:
+def primeira_linha_util(texto: str) -> str:
     """Extrai a primeira linha nao-vazia de um texto. Util pra resumir
     `summary` de elaboracao em uma frase no historico."""
     if not texto:

@@ -14,7 +14,6 @@ from __future__ import annotations
 import contextlib
 import json
 from datetime import datetime
-from pathlib import Path
 
 from config import PAJS_DIR
 

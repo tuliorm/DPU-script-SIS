@@ -30,7 +30,10 @@ from ingestao import ocr, parser, sisdpu_client
 import contextlib
 
 
-PAJ_REGEX = re.compile(r"^(\d{4})/(\d{3})-(\d+)$")
+# Formato canonico: AAAA/UUU-NNNNN (5 digitos no numero). Alinhado com
+# services.paj_service.PAJ_NORM_REGEX — toda a app trabalha com largura fixa,
+# entao manter aqui tambem evita aceitar formato que as rotas FastAPI rejeitariam.
+PAJ_REGEX = re.compile(r"^(\d{4})/(\d{3})-(\d{5})$")
 
 
 def _decompor_paj(paj: str) -> tuple[str, str, str] | None:
@@ -639,7 +642,6 @@ async def _processar_paj_pos_detalhamento(
     if not dec:
         log(f"  [skip] PAJ mal-formado: {paj!r}")
         return ("", False)
-    ano, unidade, numero = dec
     paj_norm = _normalizar_paj(paj)
     pasta = PAJS_DIR / paj_norm
     ja_existia = pasta.exists()
@@ -1414,7 +1416,7 @@ async def rodar_paj_via_busca_global(
     item_sintetico = {"paj": alvo}
 
     try:
-        paj_norm_ret, ok = await _processar_paj_pos_detalhamento(
+        _, ok = await _processar_paj_pos_detalhamento(
             item_sintetico, det, log,
             deve_cancelar=deve_cancelar,
             baixar_anexos=baixar_anexos,
