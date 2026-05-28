@@ -404,7 +404,7 @@ class ChatSession:
                 "elaborar",
                 skill=self.skill_slug or "",
                 status=self.status,
-                resumo=historico._primeira_linha_util(self.summary),
+                resumo=historico.primeira_linha_util(self.summary),
             )
 
 

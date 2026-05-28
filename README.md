@@ -88,7 +88,7 @@ SISDPU_USERNAME=seu.usuario
 SISDPU_PASSWORD=sua.senha
 ```
 
-`OFICIO_GERAL` aponta para a pasta do Defensor — é onde ficam `PAJs/`, `Peças Feitas/`, os scripts `gerar_docx.py` / `gerar_peticao.py` e o `CLAUDE.md`. As credenciais SISDPU são usadas pela funcionalidade "Sincronizar caixa" do dashboard.
+`OFICIO_GERAL` aponta para a pasta do Defensor — é onde ficam `PAJs/`, `Peças Feitas/`, os scripts `gerar_docx.py` / `gerar_peticao.py` e o `CLAUDE.md`. `OFICIO_DESCRICAO` é apenas o texto exibido na sidebar (cosmético). As credenciais SISDPU são usadas pela funcionalidade "Sincronizar caixa" do dashboard.
 
 ---
 

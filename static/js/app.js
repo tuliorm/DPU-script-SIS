@@ -974,8 +974,8 @@ function _renderBuscaResultados() {
         cont.innerHTML = '<div class="p-4 text-sm text-base-content/50 text-center">Nenhum resultado.</div>';
         return;
     }
-    const html = '';
-    for (const i = 0; i < _buscaResultados.length; i++) {
+    let html = '';
+    for (let i = 0; i < _buscaResultados.length; i++) {
         let r = _buscaResultados[i];
         let badge = '';
         if (r.fonte === 'metadata') badge = '<span class="badge badge-xs badge-primary">meta</span>';

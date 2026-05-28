@@ -14,6 +14,11 @@ OFICIO_GERAL = Path(os.getenv(
 PAJS_DIR = OFICIO_GERAL / "PAJs"
 PECAS_FEITAS_DIR = OFICIO_GERAL / "Peças Feitas"
 
+# Texto exibido sob o titulo "Oficio Geral" na sidebar — identifica a unidade
+# do defensor (ex: "2ª Categoria - DPU/AP"). Default generico para nao expor
+# unidade especifica no codigo; cada usuario ajusta no .env.
+OFICIO_DESCRICAO = os.getenv("OFICIO_DESCRICAO") or "Defensoria Pública da União"
+
 # Scripts do workspace usados pelo painel
 GERAR_DOCX_SCRIPT = OFICIO_GERAL / "gerar_docx.py"
 GERAR_PECA_SCRIPT = OFICIO_GERAL / "gerar_peticao.py"
