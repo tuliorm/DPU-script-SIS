@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from config import PAJS_DIR
+from services import historico
 
 
 MAX_MOVIMENTACOES_RESUMO = 8
@@ -25,6 +26,69 @@ def _ler_json(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _digest_conclusao(summary: str, lim: int = 1400) -> str:
+    """Digest compacto da ultima elaboracao. Prioriza o bloco RESUMO estruturado
+    (que carrega partes/polo/resultado) se presente; senao, cabeca do texto."""
+    if not summary:
+        return ""
+    s = summary
+    for marca in ("═══", "RESUMO DA ANALISE", "RESUMO DA ANÁLISE"):
+        i = s.find(marca)
+        if 0 <= i <= 1500:
+            s = s[i:]
+            break
+    s = s.strip()
+    if len(s) > lim:
+        s = s[:lim].rstrip() + " […]"
+    return s
+
+
+def _secao_memoria(paj_norm: str) -> str:
+    """Monta a secao 'Memoria do PAJ' a partir de elaboracao.json (ultima
+    conclusao) e historico.jsonl (trilha). Retorna '' se o PAJ e' virgem — nesse
+    caso o PROMPT_MAX segue sem ruido. Implementa o lado QUERY do padrao de
+    memoria por processo: carregar conclusoes anteriores em vez de re-derivar."""
+    pasta = PAJS_DIR / paj_norm
+    elab = _ler_json(pasta / "elaboracao.json") or {}
+    eventos = historico.ler(paj_norm, limit=6)
+    if not elab and not eventos:
+        return ""
+
+    linhas: list[str] = [
+        "## \U0001f9e0 Memoria do PAJ — rodadas anteriores (LER ANTES de reanalisar)",
+        "",
+        "> Este PAJ JA foi trabalhado. **Nao reanalise do zero:** leia "
+        "`elaboracao.json` e os arquivos gerados na pasta (despacho.txt, *.txt) e "
+        "CONSTRUA sobre as conclusoes abaixo. Reabra os documentos brutos em "
+        "`pecas/` apenas para o que a memoria nao cobrir. Confirme a polaridade "
+        "(autor/reu · polo da DPU · resultado favoravel/desfavoravel) antes de seguir.",
+    ]
+
+    if elab:
+        concl = (elab.get("concluido_em") or "")[:16].replace("T", " ")
+        status = elab.get("status") or "?"
+        linhas += ["", f"**Ultima elaboracao:** {concl or '?'} · status `{status}`"]
+        digest = _digest_conclusao(elab.get("summary") or "")
+        if digest:
+            linhas += ["", "**Digest da conclusao anterior:**", "", "```",
+                       digest, "```", "*(integra em `elaboracao.json`)*"]
+
+    if eventos:
+        linhas += ["", "**Trilha recente (`historico.jsonl`):**"]
+        for ev in eventos:
+            ts = (ev.get("ts") or "")[:16].replace("T", " ")
+            evt = ev.get("evento") or "?"
+            skill = ev.get("skill")
+            resumo = ev.get("resumo") or ev.get("texto") or ""
+            if len(resumo) > 120:
+                resumo = resumo[:120].rstrip() + "…"
+            sk = f" ({skill})" if skill else ""
+            linhas.append(f"- {ts} · {evt}{sk} — {resumo}")
+
+    linhas.append("")
+    return "\n".join(linhas)
 
 
 def gerar_prompt_max(paj_norm: str) -> Path | None:
@@ -68,6 +132,13 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
         for p in prazos:
             descr = p.get("descricao") or p.get("parte") or "prazo"
             partes.append(f"- **{p.get('data_final', '?')}** ({p.get('dias', '?')} dias) — {descr}")
+
+    # Memoria das rodadas anteriores (query-before-raw): se o PAJ ja foi
+    # trabalhado, carrega as conclusoes cedo no prompt pra nao reanalisar do zero.
+    secao_mem = _secao_memoria(paj_norm)
+    if secao_mem:
+        partes.append("")
+        partes.append(secao_mem)
 
     # Movimentacoes recentes (cronologico reverso)
     det = metadata.get("detalhes_sisdpu", {}) or {}
