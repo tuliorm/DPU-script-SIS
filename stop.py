@@ -26,9 +26,7 @@ def _killp_posix(pid: int) -> None:
 
 def _sweep_porta_windows(port: int) -> None:
     """Mata tudo que esta LISTEN na porta (netstat + taskkill)."""
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True
-    )
+    result = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True)
     seen: set[int] = set()
     for line in result.stdout.splitlines():
         parts = line.split()
@@ -53,7 +51,8 @@ def _sweep_porta_posix(port: int) -> None:
     try:
         result = subprocess.run(
             ["lsof", "-ti", f":{port}", "-sTCP:LISTEN"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
     except FileNotFoundError:
         print(f"[stop] (aviso) lsof nao encontrado — pulando sweep da porta {port}")

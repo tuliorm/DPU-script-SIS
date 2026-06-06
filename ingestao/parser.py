@@ -151,7 +151,7 @@ def parsear_movimentacoes(texto: str) -> list[dict]:
         if m_seq_pref:
             with contextlib.suppress(ValueError):
                 seq_sis = int(m_seq_pref.group(1))
-            stripped = stripped[m_seq_pref.end():]
+            stripped = stripped[m_seq_pref.end() :]
 
         m_ini = RE_MOV_INICIO.match(stripped)
         m_inl = RE_MOV_INLINE.match(stripped)
@@ -212,9 +212,7 @@ def montar_metadata(paj_norm: str, texto_sisdpu: str) -> dict:
     linha_paj = header.get("paj", "")
     paj_id = normalizar_paj_id(linha_paj, paj_norm)
 
-    assistido = header.get("assistido", "") or (
-        extrair_assistido_da_linha_paj(linha_paj) or ""
-    )
+    assistido = header.get("assistido", "") or (extrair_assistido_da_linha_paj(linha_paj) or "")
 
     pretensao = header.get("pretensao", "")
     foro_area = derivar_foro(pretensao)
@@ -226,9 +224,7 @@ def montar_metadata(paj_norm: str, texto_sisdpu: str) -> dict:
     data_abertura_iso = parse_data_br(data_abertura_br)
 
     movs = parsear_movimentacoes(texto_sisdpu)
-    ultima_mov = (
-        max(movs, key=lambda m: (m.get("data") or ""), default={}) if movs else {}
-    )
+    ultima_mov = max(movs, key=lambda m: m.get("data") or "", default={}) if movs else {}
 
     prazos_abertos: list[dict] = []
     if header.get("prazo_critico"):

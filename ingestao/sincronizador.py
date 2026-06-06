@@ -153,13 +153,14 @@ def _sanitizar_nome(nome: str) -> str:
     """Normaliza nome de arquivo pra Windows: remove caracteres invalidos,
     corta acentos, limita tamanho."""
     import unicodedata
+
     nfkd = unicodedata.normalize("NFKD", nome or "")
     sem_acento = "".join(c for c in nfkd if not unicodedata.combining(c))
     limpo = _NOME_VALIDO_RE.sub("_", sem_acento).strip(" ._")
     if len(limpo) > 120:
         stem, dot, ext = limpo.rpartition(".")
         if dot and len(ext) <= 5:  # noqa: SIM108 - ternario fica menos legivel aqui
-            limpo = stem[:115 - len(ext)] + "." + ext
+            limpo = stem[: 115 - len(ext)] + "." + ext
         else:
             limpo = limpo[:120]
     return limpo or "anexo"
@@ -181,7 +182,19 @@ def _nome_anexo(idx: int, descricao: str, arquivo: str) -> str:
     nome_orig = _sanitizar_nome(arquivo) if arquivo else ""
     if nome_orig:
         stem, dot, ext = nome_orig.rpartition(".")
-        if dot and ext.lower() in {"pdf", "docx", "doc", "jpg", "jpeg", "png", "gif", "xlsx", "xls", "txt", "zip"}:
+        if dot and ext.lower() in {
+            "pdf",
+            "docx",
+            "doc",
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "xlsx",
+            "xls",
+            "txt",
+            "zip",
+        }:
             nome_orig = stem
     partes = [prefixo]
     if desc_slug:
@@ -194,7 +207,7 @@ def _nome_anexo(idx: int, descricao: str, arquivo: str) -> str:
 
 _MAGIC_BYTES = [
     (b"%PDF", ".pdf"),
-    (b"PK\x03\x04", ".zip"),   # tambem e' a assinatura de docx/xlsx/pptx
+    (b"PK\x03\x04", ".zip"),  # tambem e' a assinatura de docx/xlsx/pptx
     (b"\xff\xd8\xff", ".jpg"),
     (b"\x89PNG\r\n\x1a\n", ".png"),
     (b"GIF87a", ".gif"),
@@ -231,11 +244,33 @@ def _detectar_ext_por_magic(path: Path) -> str | None:
 
 # Extensoes "conhecidas" que nao precisam de rebatizacao por magic bytes
 _EXTS_LEGITIMAS = {
-    ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp",
-    ".txt", ".json", ".md", ".zip", ".rar", ".7z",
-    ".mp3", ".mp4", ".avi", ".mov",
-    ".html", ".xml", ".csv",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".xlsx",
+    ".xls",
+    ".pptx",
+    ".ppt",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".tiff",
+    ".webp",
+    ".txt",
+    ".json",
+    ".md",
+    ".zip",
+    ".rar",
+    ".7z",
+    ".mp3",
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".html",
+    ".xml",
+    ".csv",
 }
 
 
@@ -321,6 +356,7 @@ def _parse_data_arquivo(s: str):
     ficam no fim do sort decrescente (sao os menos prioritarios).
     """
     import datetime as _dt
+
     try:
         return _dt.datetime.strptime((s or "").strip(), "%d/%m/%Y").date()
     except (ValueError, AttributeError, TypeError):
@@ -392,14 +428,20 @@ async def _baixar_anexos_sisdpu(
             candidatos = diag.get("candidatos_botao_arquivos", []) or []
             log(f"    [diag] candidatos ao botão Arquivos: {len(candidatos)}")
             for c in candidatos[:5]:
-                log(f"      - <{c.get('tag')}> '{c.get('texto')}' id={c.get('id')} cls={c.get('classes', '')[:60]}")
+                log(
+                    f"      - <{c.get('tag')}> '{c.get('texto')}' id={c.get('id')} cls={c.get('classes', '')[:60]}"
+                )
             log(f"    [diag] clique: {diag.get('clicou', 'N/A')}")
             dlgs = diag.get("dialogs_visiveis", []) or []
             log(f"    [diag] dialogs visíveis: {len(dlgs)}")
             for d in dlgs[:5]:
-                log(f"      - id={d.get('id')} título='{d.get('titulo')}' linhas={d.get('linhas_tabela')}")
+                log(
+                    f"      - id={d.get('id')} título='{d.get('titulo')}' linhas={d.get('linhas_tabela')}"
+                )
             log(f"    [diag] estrategia_localizacao: {diag.get('estrategia', 'N/A')}")
-            log(f"    [diag] total_linhas_vistas: {diag.get('total_linhas', 0)} filtradas: {diag.get('linhas_filtradas', 0)}")
+            log(
+                f"    [diag] total_linhas_vistas: {diag.get('total_linhas', 0)} filtradas: {diag.get('linhas_filtradas', 0)}"
+            )
             snippet = (diag.get("html_snippet") or "").replace("\n", " ")[:400]
             if snippet:
                 log(f"    [diag] html[:400]: {snippet}")
@@ -422,7 +464,8 @@ async def _baixar_anexos_sisdpu(
         # Modo "completar desde data": baixa todos com data >= filtro_data_min,
         # sem aplicar limite.
         lista_para_baixar = [
-            i for i in lista_ordenada
+            i
+            for i in lista_ordenada
             if _parse_data_arquivo(i.get("descricao", "")) >= filtro_data_min
         ]
         log(
@@ -433,12 +476,8 @@ async def _baixar_anexos_sisdpu(
         # Modo padrao com overflow: baixa os `limite` mais recentes
         lista_para_baixar = lista_ordenada[:limite]
         cortados = lista_ordenada[limite:]
-        data_min_baixada = _parse_data_arquivo(
-            lista_para_baixar[-1].get("descricao", "")
-        )
-        data_min_disponivel = _parse_data_arquivo(
-            cortados[-1].get("descricao", "")
-        )
+        data_min_baixada = _parse_data_arquivo(lista_para_baixar[-1].get("descricao", ""))
+        data_min_disponivel = _parse_data_arquivo(cortados[-1].get("descricao", ""))
         overflow_info = {
             "total_no_sisdpu": total,
             "baixados": len(lista_para_baixar),
@@ -502,7 +541,8 @@ async def _baixar_anexos_sisdpu(
         # categoria nova faria todos os anexos antigos serem re-baixados.
         stem_alvo = _stem_sem_prefixo_idx(destino.stem)
         existentes = [
-            p for p in pasta_pecas.iterdir()
+            p
+            for p in pasta_pecas.iterdir()
             if p.is_file()
             and p.suffix.lower() != ".txt"
             and p.stat().st_size > 0
@@ -613,7 +653,9 @@ async def _processar_paj(
         return (paj_norm, False)
 
     return await _processar_paj_pos_detalhamento(
-        item, det, log,
+        item,
+        det,
+        log,
         deve_cancelar=deve_cancelar,
         baixar_anexos=baixar_anexos,
         via_busca_global=False,
@@ -689,8 +731,11 @@ async def _processar_paj_pos_detalhamento(
         metadata["etiqueta_sisdpu"] = meta_antiga.get("etiqueta_sisdpu", "") or ""
         # Campos de ciclo de vida que nao vem do detalhamento — preservar.
         for k in (
-            "via_watchlist", "concluido_em", "arquivado_em",
-            "n_anexos_removidos", "anexos_removidos_em",
+            "via_watchlist",
+            "concluido_em",
+            "arquivado_em",
+            "n_anexos_removidos",
+            "anexos_removidos_em",
         ):
             if k in meta_antiga:
                 metadata[k] = meta_antiga[k]
@@ -726,7 +771,9 @@ async def _processar_paj_pos_detalhamento(
         for p in prazos_detectados:
             _append_prazo(p)
         if prazos_detectados:
-            log(f"  [prazos] {len(prazos_detectados)} prazo(s) novo(s) detectado(s) — aguardando /sync_calendar")
+            log(
+                f"  [prazos] {len(prazos_detectados)} prazo(s) novo(s) detectado(s) — aguardando /sync_calendar"
+            )
     except Exception as e:
         log(f"  [prazos] erro ao detectar: {type(e).__name__}: {e}")
 
@@ -742,6 +789,7 @@ async def _processar_paj_pos_detalhamento(
             metadata["n_anexos_sisdpu"] = metadata.get("n_anexos_sisdpu", 0)
             metadata["sync_incompleto"] = True
             import datetime as _dt
+
             metadata["sync_incompleto_em"] = _dt.datetime.now().isoformat()
             metadata["sync_incompleto_motivo"] = "cancelado antes do download de anexos"
             (pasta / "metadata.json").write_text(
@@ -752,7 +800,9 @@ async def _processar_paj_pos_detalhamento(
             return (paj_norm, True)
 
         resultado_anexos = await _baixar_anexos_sisdpu(
-            pasta / "pecas", log, limite=MAX_ANEXOS_POR_PAJ,
+            pasta / "pecas",
+            log,
+            limite=MAX_ANEXOS_POR_PAJ,
             deve_cancelar=deve_cancelar,
         )
         total_anexos = resultado_anexos["total_no_sisdpu"]
@@ -772,11 +822,11 @@ async def _processar_paj_pos_detalhamento(
         # ressincronizado com sucesso.
         if interrompido:
             import datetime as _dt
+
             metadata["sync_incompleto"] = True
             metadata["sync_incompleto_em"] = _dt.datetime.now().isoformat()
             metadata["sync_incompleto_motivo"] = (
-                f"cancelado durante download de anexos ({baixados} de "
-                f"{total_anexos} baixados)"
+                f"cancelado durante download de anexos ({baixados} de {total_anexos} baixados)"
             )
         else:
             # Sync completou — limpa qualquer flag antigo
@@ -795,14 +845,19 @@ async def _processar_paj_pos_detalhamento(
             # nao a data_min_disponivel calculada a partir do parser de descricao
             # dos anexos (que pode resultar em datas ficcionais quando os anexos
             # mais antigos nao trazem data parseavel — ex: 0001-01-01).
-            data_inst_br = _iso_para_br(metadata.get("data_abertura", "")) or "data de instauracao indisponivel"
+            data_inst_br = (
+                _iso_para_br(metadata.get("data_abertura", ""))
+                or "data de instauracao indisponivel"
+            )
             log(
                 f"  [anexos] OVERFLOW: {overflow['total_no_sisdpu'] - overflow['baixados']} "
                 f"anexo(s) mais antigos pendentes (use 'Baixar mais antigos' "
                 f"desde a instauração do PAJ em {data_inst_br})"
             )
         if interrompido:
-            log("  [warn] PAJ marcado como SINCRONIZACAO INCOMPLETA — re-sincronize antes de elaborar")
+            log(
+                "  [warn] PAJ marcado como SINCRONIZACAO INCOMPLETA — re-sincronize antes de elaborar"
+            )
     else:
         # Modo rapido: nao toca no flag sync_incompleto. Se ja era incompleto,
         # continua incompleto (rapido nao baixa anexos novos).
@@ -810,9 +865,7 @@ async def _processar_paj_pos_detalhamento(
             metadata["sync_incompleto"] = True
             if sync_incompleto_em_anterior:
                 metadata["sync_incompleto_em"] = sync_incompleto_em_anterior
-            metadata["sync_incompleto_motivo"] = (
-                "anexos pendentes (modo rapido nao baixa anexos)"
-            )
+            metadata["sync_incompleto_motivo"] = "anexos pendentes (modo rapido nao baixa anexos)"
             (pasta / "metadata.json").write_text(
                 json.dumps(metadata, ensure_ascii=False, indent=2, default=str),
                 encoding="utf-8",
@@ -950,6 +1003,7 @@ async def rodar(
     baixar_anexos: se False, pula download/OCR dos anexos (sync rapido).
     Retorna dict com resumo: {"total_caixa": N, "processados": M, "erros": [...]}.
     """
+
     def log(msg: str) -> None:
         with contextlib.suppress(Exception):
             log_callback(msg)
@@ -960,7 +1014,13 @@ async def rodar(
         except Exception:
             return False
 
-    resumo: dict = {"total_caixa": 0, "processados": 0, "concluidos": 0, "erros": [], "cancelado": False}
+    resumo: dict = {
+        "total_caixa": 0,
+        "processados": 0,
+        "concluidos": 0,
+        "erros": [],
+        "cancelado": False,
+    }
     pajs_na_caixa: set[str] = set()
 
     log("[sync] iniciando sincronização SISDPU")
@@ -995,13 +1055,16 @@ async def rodar(
 
     for i, item in enumerate(itens, start=1):
         if _cancelado():
-            log(f"[sync] CANCELADO pelo usuário após {i-1}/{len(itens)} PAJs")
+            log(f"[sync] CANCELADO pelo usuário após {i - 1}/{len(itens)} PAJs")
             resumo["cancelado"] = True
             break
-        log(f"[{i}/{len(itens)}] {item.get('paj','?')}")
+        log(f"[{i}/{len(itens)}] {item.get('paj', '?')}")
         try:
             paj_norm, ok = await _processar_paj(
-                item, log, deve_cancelar=_cancelado, baixar_anexos=baixar_anexos,
+                item,
+                log,
+                deve_cancelar=_cancelado,
+                baixar_anexos=baixar_anexos,
             )
             if paj_norm:
                 pajs_na_caixa.add(paj_norm)
@@ -1009,7 +1072,7 @@ async def rodar(
                 resumo["processados"] += 1
         except Exception as e:
             log(f"  [EXC] {type(e).__name__}: {e}")
-            resumo["erros"].append(f"{item.get('paj','?')}: {e}")
+            resumo["erros"].append(f"{item.get('paj', '?')}: {e}")
         await asyncio.sleep(RATE_LIMIT_SISDPU)
 
     with contextlib.suppress(Exception):
@@ -1042,21 +1105,25 @@ async def rodar(
             continue
         ov = meta.get("anexos_extras")
         if ov and isinstance(ov, dict):
-            pajs_overflow.append({
-                "paj_norm": paj_norm,
-                "total_no_sisdpu": ov.get("total_no_sisdpu"),
-                "baixados": ov.get("baixados"),
-                "data_min_baixada": ov.get("data_min_baixada"),
-                # data de instauracao real do PAJ — usada no log abaixo no lugar
-                # da `data_min_disponivel` (que costuma ser ficcional 0001-01-01).
-                "data_abertura": meta.get("data_abertura", ""),
-            })
+            pajs_overflow.append(
+                {
+                    "paj_norm": paj_norm,
+                    "total_no_sisdpu": ov.get("total_no_sisdpu"),
+                    "baixados": ov.get("baixados"),
+                    "data_min_baixada": ov.get("data_min_baixada"),
+                    # data de instauracao real do PAJ — usada no log abaixo no lugar
+                    # da `data_min_disponivel` (que costuma ser ficcional 0001-01-01).
+                    "data_abertura": meta.get("data_abertura", ""),
+                }
+            )
         if meta.get("sync_incompleto"):
-            pajs_incompletos.append({
-                "paj_norm": paj_norm,
-                "motivo": meta.get("sync_incompleto_motivo", ""),
-                "em": meta.get("sync_incompleto_em", ""),
-            })
+            pajs_incompletos.append(
+                {
+                    "paj_norm": paj_norm,
+                    "motivo": meta.get("sync_incompleto_motivo", ""),
+                    "em": meta.get("sync_incompleto_em", ""),
+                }
+            )
 
     if pajs_overflow:
         log("=" * 60)
@@ -1069,23 +1136,31 @@ async def rodar(
                 f"(mais antigo baixado: {data_min_br}; "
                 f"instaurado em: {data_inst_br})"
             )
-        log("[sync] DICA: abra o PAJ → aba Anexos → 'Baixar mais antigos' "
-            "para informar a data de corte e completar.")
+        log(
+            "[sync] DICA: abra o PAJ → aba Anexos → 'Baixar mais antigos' "
+            "para informar a data de corte e completar."
+        )
     resumo["pajs_overflow"] = pajs_overflow
 
     if pajs_incompletos:
         log("=" * 60)
-        log(f"[sync] {len(pajs_incompletos)} PAJ(s) com SINCRONIZACAO INCOMPLETA "
-            "(elaboracao bloqueada ate ressincronizar):")
+        log(
+            f"[sync] {len(pajs_incompletos)} PAJ(s) com SINCRONIZACAO INCOMPLETA "
+            "(elaboracao bloqueada ate ressincronizar):"
+        )
         for p in pajs_incompletos:
             log(f"  - {p['paj_norm']}: {p['motivo']}")
-        log("[sync] DICA: abra cada PAJ e clique em 'Re-sincronizar agora' "
-            "no banner vermelho do topo.")
+        log(
+            "[sync] DICA: abra cada PAJ e clique em 'Re-sincronizar agora' "
+            "no banner vermelho do topo."
+        )
     resumo["pajs_incompletos"] = pajs_incompletos
 
     log("=" * 60)
-    log(f"[sync] FIM: {resumo['processados']}/{resumo['total_caixa']} processados, "
-        f"{len(resumo['erros'])} erros")
+    log(
+        f"[sync] FIM: {resumo['processados']}/{resumo['total_caixa']} processados, "
+        f"{len(resumo['erros'])} erros"
+    )
 
     # Marca este momento como "última sincronização da CAIXA INTEIRA". Usado
     # pelo dashboard como "ultima_execucao" — diferente dos mtimes dos
@@ -1094,16 +1169,21 @@ async def rodar(
     # marcador reflete uma varredura completa da caixa.
     with contextlib.suppress(Exception):
         from datetime import datetime as _dt2
+
         marcador = PAJS_DIR / ".ultima_sync_caixa.json"
         PAJS_DIR.mkdir(parents=True, exist_ok=True)
         marcador.write_text(
-            json.dumps({
-                "em": _dt2.now().isoformat(timespec="seconds"),
-                "modo": "completa" if baixar_anexos else "rapida",
-                "total_caixa": resumo.get("total_caixa", 0),
-                "processados": resumo.get("processados", 0),
-                "erros": len(resumo.get("erros", [])),
-            }, ensure_ascii=False, indent=2),
+            json.dumps(
+                {
+                    "em": _dt2.now().isoformat(timespec="seconds"),
+                    "modo": "completa" if baixar_anexos else "rapida",
+                    "total_caixa": resumo.get("total_caixa", 0),
+                    "processados": resumo.get("processados", 0),
+                    "erros": len(resumo.get("erros", [])),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
 
@@ -1129,6 +1209,7 @@ async def rodar_anexos_desde_data(
     overflow_residual}.
     """
     import datetime as _dt
+
     if not isinstance(data_inicio, _dt.date):
         raise TypeError("data_inicio deve ser datetime.date")
 
@@ -1262,6 +1343,7 @@ async def rodar_paj_unico(
     Exige que o PAJ esteja na caixa de entrada atual (para localizar o link
     na tela da caixa e clicar nele).
     """
+
     def log(msg: str) -> None:
         with contextlib.suppress(Exception):
             log_callback(msg)
@@ -1310,7 +1392,10 @@ async def rodar_paj_unico(
 
     try:
         paj_norm, ok = await _processar_paj(
-            item_alvo, log, deve_cancelar=deve_cancelar, baixar_anexos=baixar_anexos,
+            item_alvo,
+            log,
+            deve_cancelar=deve_cancelar,
+            baixar_anexos=baixar_anexos,
         )
         if ok:
             resumo["processado"] = True
@@ -1325,8 +1410,7 @@ async def rodar_paj_unico(
             pasta_pecas = pasta / "pecas"
             if pasta_pecas.exists():
                 resumo["baixados"] = sum(
-                    1 for f in pasta_pecas.iterdir()
-                    if f.is_file() and f.suffix.lower() != ".txt"
+                    1 for f in pasta_pecas.iterdir() if f.is_file() and f.suffix.lower() != ".txt"
                 )
     except Exception as e:
         log(f"  [EXC] {type(e).__name__}: {e}")
@@ -1336,10 +1420,12 @@ async def rodar_paj_unico(
         await sisdpu_client.fechar()
 
     log("=" * 60)
-    log(f"[sync-paj] FIM: processado={resumo['processado']}, "
+    log(
+        f"[sync-paj] FIM: processado={resumo['processado']}, "
         f"anexos_listados={resumo['anexos']}, "
         f"arquivos_baixados={resumo['baixados']}, "
-        f"erros={len(resumo['erros'])}")
+        f"erros={len(resumo['erros'])}"
+    )
     return resumo
 
 
@@ -1366,6 +1452,7 @@ async def rodar_paj_via_busca_global(
 
     `paj_identificador` aceita 'PAJ-2026-044-00311' ou '2026/044-00311'.
     """
+
     def log(msg: str) -> None:
         with contextlib.suppress(Exception):
             log_callback(msg)
@@ -1417,7 +1504,9 @@ async def rodar_paj_via_busca_global(
 
     try:
         _, ok = await _processar_paj_pos_detalhamento(
-            item_sintetico, det, log,
+            item_sintetico,
+            det,
+            log,
             deve_cancelar=deve_cancelar,
             baixar_anexos=baixar_anexos,
             via_busca_global=True,
@@ -1433,8 +1522,7 @@ async def rodar_paj_via_busca_global(
             pasta_pecas = pasta / "pecas"
             if pasta_pecas.exists():
                 resumo["baixados"] = sum(
-                    1 for f in pasta_pecas.iterdir()
-                    if f.is_file() and f.suffix.lower() != ".txt"
+                    1 for f in pasta_pecas.iterdir() if f.is_file() and f.suffix.lower() != ".txt"
                 )
     except Exception as e:
         log(f"  [EXC] {type(e).__name__}: {e}")
@@ -1444,10 +1532,12 @@ async def rodar_paj_via_busca_global(
         await sisdpu_client.fechar()
 
     log("=" * 60)
-    log(f"[busca-global] FIM: processado={resumo['processado']}, "
+    log(
+        f"[busca-global] FIM: processado={resumo['processado']}, "
         f"anexos_listados={resumo['anexos']}, "
         f"arquivos_baixados={resumo['baixados']}, "
-        f"erros={len(resumo['erros'])}")
+        f"erros={len(resumo['erros'])}"
+    )
     return resumo
 
 
@@ -1502,7 +1592,8 @@ async def rodar_watchlist(
 
         try:
             r = await rodar_paj_via_busca_global(
-                paj_norm, log_callback,
+                paj_norm,
+                log_callback,
                 deve_cancelar=deve_cancelar,
                 baixar_anexos=baixar_anexos,
             )
@@ -1520,8 +1611,7 @@ async def rodar_watchlist(
     log(
         f"[sync-watchlist] FIM: processados={resumo['processados']} de "
         f"{resumo['total']}, anexos_baixados={resumo['anexos_baixados']}, "
-        f"erros={len(resumo['erros'])}"
-        + (" (cancelado)" if resumo["cancelado"] else "")
+        f"erros={len(resumo['erros'])}" + (" (cancelado)" if resumo["cancelado"] else "")
     )
     return resumo
 
@@ -1543,6 +1633,7 @@ async def buscar_resumo_via_busca(
     `paj_identificador` aceita 'PAJ-2026-044-00311' ou '2026/044-00311'.
     Retorna {paj_norm, ok, mensagem} — `ok=True` se metadata foi gravado.
     """
+
     def log(msg: str) -> None:
         if log_callback is not None:
             with contextlib.suppress(Exception):

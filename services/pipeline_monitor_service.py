@@ -99,15 +99,17 @@ def listar_runs(max_runs: int = 20) -> list[dict]:
             except Exception:
                 pass
 
-            runs.append({
-                "nome": f.name,
-                "caminho": str(f),
-                "data": data.isoformat(),
-                "tamanho_bytes": stat.st_size,
-                "tamanho_linhas": n_linhas,
-                "resumo": resumo,
-                "modificado": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            })
+            runs.append(
+                {
+                    "nome": f.name,
+                    "caminho": str(f),
+                    "data": data.isoformat(),
+                    "tamanho_bytes": stat.st_size,
+                    "tamanho_linhas": n_linhas,
+                    "resumo": resumo,
+                    "modificado": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                }
+            )
         except Exception:
             continue
 

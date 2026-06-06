@@ -72,8 +72,15 @@ def _secao_memoria(paj_norm: str) -> str:
         linhas += ["", f"**Ultima elaboracao:** {concl or '?'} · status `{status}`"]
         digest = _digest_conclusao(elab.get("summary") or "")
         if digest:
-            linhas += ["", "**Digest da conclusao anterior:**", "", "```",
-                       digest, "```", "*(integra em `elaboracao.json`)*"]
+            linhas += [
+                "",
+                "**Digest da conclusao anterior:**",
+                "",
+                "```",
+                digest,
+                "```",
+                "*(integra em `elaboracao.json`)*",
+            ]
 
     if eventos:
         linhas += ["", "**Trilha recente (`historico.jsonl`):**"]
@@ -100,9 +107,7 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
     metadata = _ler_json(pasta / "metadata.json") or {}
     sisdpu_path = pasta / "sisdpu.txt"
     sisdpu_texto = (
-        sisdpu_path.read_text(encoding="utf-8", errors="replace")
-        if sisdpu_path.exists()
-        else ""
+        sisdpu_path.read_text(encoding="utf-8", errors="replace") if sisdpu_path.exists() else ""
     )
 
     # Import tardio pra evitar ciclo com paj_service
@@ -123,7 +128,9 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
         partes.append(f"- **Processo judicial:** {proc}" + (f" ({foro_det})" if foro_det else ""))
     else:
         partes.append("- **Processo judicial:** (nao cadastrado)")
-    partes.append(f"- **Status:** {metadata.get('detalhes_sisdpu', {}).get('status_paj') or 'Ativo'}")
+    partes.append(
+        f"- **Status:** {metadata.get('detalhes_sisdpu', {}).get('status_paj') or 'Ativo'}"
+    )
 
     prazos = metadata.get("prazos_abertos") or []
     if prazos:
@@ -147,7 +154,9 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
     truncou_alguma = False
     if movs_ord:
         partes.append("")
-        partes.append(f"## Ultimas movimentacoes (top {min(MAX_MOVIMENTACOES_RESUMO, len(movs_ord))})")
+        partes.append(
+            f"## Ultimas movimentacoes (top {min(MAX_MOVIMENTACOES_RESUMO, len(movs_ord))})"
+        )
         for mov in movs_ord[:MAX_MOVIMENTACOES_RESUMO]:
             data = mov.get("data_original") or mov.get("data") or "?"
             descr = (mov.get("descricao") or "").strip()
@@ -161,7 +170,7 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
             partes.append("")
             partes.append(
                 "> Algumas descricoes acima foram truncadas em 400 caracteres. O texto "
-                "integral consta na secao \"Texto completo do SISDPU\" abaixo, e "
+                'integral consta na secao "Texto completo do SISDPU" abaixo, e '
                 "tambem em `sisdpu.txt` nesta mesma pasta caso prefira ler isolado."
             )
 

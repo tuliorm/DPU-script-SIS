@@ -23,7 +23,6 @@ NOMES: dict[str, tuple[str, str]] = {
     "SENT": ("Sentenca", "decisoes"),
     "ACOR": ("Acordao", "decisoes"),
     "ACORTR": ("Acordao do TRF", "decisoes"),
-
     # Recursos e impugnacoes
     "EMBDECL": ("Embargos de Declaracao", "recursos"),
     "CONTRAZ": ("Contrarrazoes", "recursos"),
@@ -32,17 +31,14 @@ NOMES: dict[str, tuple[str, str]] = {
     "AGRAVO": ("Agravo", "recursos"),
     "AGRAVOINOMLEG": ("Agravo Inominado Legal", "recursos"),
     "AGRRETID": ("Agravo Retido", "recursos"),
-
     # Pedidos de uniformizacao e peticoes iniciais
     "INIC": ("Peticao Inicial", "peticoes"),
     "PET": ("Peticao", "peticoes"),
     "PU": ("Pedido de Uniformizacao", "peticoes"),
     "PEDUNIFNAC": ("Pedido de Uniformizacao Nacional", "peticoes"),
     "MEMORIAIS": ("Memoriais", "peticoes"),
-
     # Contestacao
     "CONT": ("Contestacao", "contestacao"),
-
     # Documentos probatorios
     "LAUDO": ("Laudo Pericial", "provas"),
     "PARECER": ("Parecer (MPF)", "provas"),
@@ -50,7 +46,6 @@ NOMES: dict[str, tuple[str, str]] = {
     "CERTOBT": ("Certidao de Obito", "provas"),
     "DECL": ("Declaracao", "provas"),
     "ATA": ("Ata", "provas"),
-
     # Documentos pessoais / cadastrais
     "PROC": ("Procuracao", "pessoais"),
     "SUBS": ("Substabelecimento", "pessoais"),
@@ -59,7 +54,6 @@ NOMES: dict[str, tuple[str, str]] = {
     "END": ("Comprovante de Endereco", "pessoais"),
     "ESTATUTO": ("Estatuto", "pessoais"),
     "CONTR": ("Contrato", "pessoais"),
-
     # Tramite e administrativo
     "OFIC": ("Oficio", "tramite"),
     "MEMORANDO": ("Memorando", "tramite"),
@@ -68,7 +62,16 @@ NOMES: dict[str, tuple[str, str]] = {
     "ANEXO": ("Anexo", "tramite"),
 }
 
-CATEGORIAS_ORDEM = ["decisoes", "recursos", "peticoes", "contestacao", "provas", "pessoais", "tramite", "outros"]
+CATEGORIAS_ORDEM = [
+    "decisoes",
+    "recursos",
+    "peticoes",
+    "contestacao",
+    "provas",
+    "pessoais",
+    "tramite",
+    "outros",
+]
 
 CATEGORIAS_LABEL = {
     "decisoes": "Decisoes e Despachos",
@@ -82,12 +85,12 @@ CATEGORIAS_LABEL = {
 }
 
 CATEGORIAS_COR = {
-    "decisoes": "error",       # vermelho — mais importante
-    "recursos": "warning",     # laranja
-    "peticoes": "info",        # azul
-    "contestacao": "accent",   # roxo
-    "provas": "success",       # verde
-    "pessoais": "ghost",       # cinza
+    "decisoes": "error",  # vermelho — mais importante
+    "recursos": "warning",  # laranja
+    "peticoes": "info",  # azul
+    "contestacao": "accent",  # roxo
+    "provas": "success",  # verde
+    "pessoais": "ghost",  # cinza
     "tramite": "neutral",
     "outros": "neutral",
 }

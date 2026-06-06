@@ -42,6 +42,7 @@ from services.skills_catalog import skill_descricao, skill_valida
 # Persistencia em disco (em PAJs/<paj_norm>/conversas/<id>.json)
 # ---------------------------------------------------------------------------
 
+
 def _validar_paj_norm(paj_norm: str) -> bool:
     """Aceita apenas o formato canonico PAJ-YYYY-NNN-NNNNN. Bloqueia path
     traversal."""
@@ -104,8 +105,9 @@ def _agora_iso() -> str:
     return _dt.datetime.now().isoformat(timespec="seconds")
 
 
-def criar_conversa(paj_norm: str, *, titulo: str = "",
-                   skill_slug: str | None = None) -> dict | None:
+def criar_conversa(
+    paj_norm: str, *, titulo: str = "", skill_slug: str | None = None
+) -> dict | None:
     """Cria conversa nova vinculada a um PAJ. Retorna dict completo ou None
     se paj_norm invalido."""
     pasta = _pasta_conversas(paj_norm)
@@ -142,15 +144,17 @@ def listar_conversas_paj(paj_norm: str, limit: int = 200) -> list[dict]:
             continue
         if not isinstance(data, dict) or "id" not in data:
             continue
-        out.append({
-            "id": data.get("id", ""),
-            "paj_norm": data.get("paj_norm", paj_norm),
-            "titulo": data.get("titulo") or "Sem título",
-            "skill_slug": data.get("skill_slug"),
-            "criado_em": data.get("criado_em", ""),
-            "atualizado_em": data.get("atualizado_em", ""),
-            "n_mensagens": len(data.get("mensagens") or []),
-        })
+        out.append(
+            {
+                "id": data.get("id", ""),
+                "paj_norm": data.get("paj_norm", paj_norm),
+                "titulo": data.get("titulo") or "Sem título",
+                "skill_slug": data.get("skill_slug"),
+                "criado_em": data.get("criado_em", ""),
+                "atualizado_em": data.get("atualizado_em", ""),
+                "n_mensagens": len(data.get("mensagens") or []),
+            }
+        )
     out.sort(key=lambda c: c.get("atualizado_em") or c.get("criado_em") or "", reverse=True)
     return out[:limit]
 
@@ -198,12 +202,13 @@ def remover_conversa(conv_id: str) -> bool:
     return True
 
 
-def atualizar_metadata(conv_id: str, *, titulo: str | None = None,
-                       skill_slug: str | None = None) -> dict | None:
+def atualizar_metadata(
+    conv_id: str, *, titulo: str | None = None, skill_slug: str | None = None
+) -> dict | None:
     """Renomeia titulo / muda skill default. Convencao:
-      - parametro None  => nao mexe
-      - parametro "" em skill_slug => remove skill
-      - string nao vazia em titulo => substitui (vazia preserva atual)
+    - parametro None  => nao mexe
+    - parametro "" em skill_slug => remove skill
+    - string nao vazia em titulo => substitui (vazia preserva atual)
     """
     achado = _localizar_conversa(conv_id)
     if not achado:
@@ -216,9 +221,7 @@ def atualizar_metadata(conv_id: str, *, titulo: str | None = None,
         novo = (titulo or "").strip()
         conversa["titulo"] = novo or conversa.get("titulo") or "Sem título"
     if skill_slug is not None:
-        conversa["skill_slug"] = (
-            skill_slug if skill_slug and skill_valida(skill_slug) else None
-        )
+        conversa["skill_slug"] = skill_slug if skill_slug and skill_valida(skill_slug) else None
     conversa["atualizado_em"] = _agora_iso()
     _gravar(paj_norm, conv_id, conversa)
     return conversa
@@ -257,6 +260,7 @@ def _gravar(paj_norm: str, conv_id: str, conversa: dict) -> None:
 # Sessao Claude
 # ---------------------------------------------------------------------------
 
+
 def _resolver_claude_cmd() -> list[str]:
     """Resolve `claude` via shutil.which; no Windows envolve com cmd.exe /c
     se for batch (.cmd/.bat)."""
@@ -278,6 +282,7 @@ def _ler_prompt_max(paj_norm: str) -> str:
     if not prompt_path.exists():
         with contextlib.suppress(Exception):
             from services.prompt_builder import gerar_prompt_max
+
             gerar_prompt_max(paj_norm)
     if prompt_path.exists():
         try:
@@ -385,10 +390,13 @@ class ChatLivreSession:
             *CLAUDE_CMD,
             "-p",
             "--verbose",
-            "--output-format", "stream-json",
-            "--input-format", "stream-json",
+            "--output-format",
+            "stream-json",
+            "--input-format",
+            "stream-json",
             "--include-partial-messages",
-            "--permission-mode", "bypassPermissions",
+            "--permission-mode",
+            "bypassPermissions",
         ]
         try:
             self.proc = subprocess.Popen(
@@ -451,11 +459,7 @@ class ChatLivreSession:
                 # Conversa reaberta: contexto de retomada (sem PROMPT_MAX porque
                 # o historico ja contem a discussao em andamento).
                 contexto = _montar_contexto_retomada(historico_anterior)
-                payload = (
-                    contexto
-                    + "\n\n--- NOVA MENSAGEM DO DEFENSOR ---\n\n"
-                    + texto
-                )
+                payload = contexto + "\n\n--- NOVA MENSAGEM DO DEFENSOR ---\n\n" + texto
             else:
                 # Conversa nova: cabecalho com PROMPT_MAX como contexto.
                 cabecalho = _montar_prompt_inicial(self.paj_norm, skill_slug)
@@ -528,9 +532,7 @@ class ChatLivreSession:
 
         if etype == "result":
             if self.accumulated_text.strip():
-                _adicionar_mensagem(
-                    self.paj_norm, self.conv_id, "assistant", self.accumulated_text
-                )
+                _adicionar_mensagem(self.paj_norm, self.conv_id, "assistant", self.accumulated_text)
             self.status = "idle"
             self.last_action = "aguardando proxima pergunta"
             return {"type": "result", "session_id": event.get("session_id", "")[:8]}

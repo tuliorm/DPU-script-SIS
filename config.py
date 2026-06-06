@@ -7,10 +7,12 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-OFICIO_GERAL = Path(os.getenv(
-    "OFICIO_GERAL",
-    str(Path.home() / "Desktop" / "Ofício Geral"),
-))
+OFICIO_GERAL = Path(
+    os.getenv(
+        "OFICIO_GERAL",
+        str(Path.home() / "Desktop" / "Ofício Geral"),
+    )
+)
 PAJS_DIR = OFICIO_GERAL / "PAJs"
 PECAS_FEITAS_DIR = OFICIO_GERAL / "Peças Feitas"
 

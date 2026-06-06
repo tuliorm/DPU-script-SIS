@@ -23,6 +23,7 @@ router = APIRouter()
 
 # ----- Elaborar Peca (background + polling + correcao multi-turn) -----
 
+
 @router.post("/api/elaborar/start/{paj_norm}")
 async def elaborar_start(paj_norm: PajNorm, payload: dict = Body(default={})):
     """Inicia elaboracao (ou enfileira se limite de paralelos atingido).
@@ -48,11 +49,7 @@ async def api_skills(paj: str | None = None):
         dados = ler_paj(paj)
         if dados:
             meta = dados.get("metadata", {}) or {}
-            area = (
-                meta.get("foro_detectado")
-                or meta.get("classificacao")
-                or ""
-            )
+            area = meta.get("foro_detectado") or meta.get("classificacao") or ""
     lista = skills_para_area(area) if area else [{**s, "destaque": False} for s in listar_skills()]
     return {"area": area, "skills": lista}
 
@@ -170,6 +167,7 @@ async def elaborar_stop(paj_norm: PajNorm):
 
 # ----- Chat Interativo (WebSocket — uso direto se quiser log completo) -----
 
+
 @router.get("/chat/{paj_norm}", response_class=HTMLResponse)
 async def chat_page(request: Request, paj_norm: PajNorm):
     template = request.app.state.jinja.get_template("chat.html")
@@ -186,6 +184,7 @@ async def chat_websocket(websocket: WebSocket, paj_norm: str):
         session.start()
 
     try:
+
         async def send_output():
             while True:
                 try:

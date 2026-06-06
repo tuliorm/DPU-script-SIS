@@ -58,12 +58,10 @@ async def api_pajs(concluidos: int = 0, arquivados: int = 0):
         # sync nesta versao do painel). Pega o mtime mais recente como
         # aproximacao.
         try:
-            mtimes = [
-                p.stat().st_mtime
-                for p in PAJS_DIR.glob("PAJ-*/metadata.json")
-            ]
+            mtimes = [p.stat().st_mtime for p in PAJS_DIR.glob("PAJ-*/metadata.json")]
             if mtimes:
                 import datetime as _dt
+
                 ultima_execucao = _dt.datetime.fromtimestamp(max(mtimes)).isoformat()
         except Exception:
             pass

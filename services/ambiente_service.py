@@ -26,11 +26,16 @@ def _tesseract_ok() -> tuple[bool, str]:
     # Tenta executar --version sem travar
     try:
         import subprocess
+
         out = subprocess.run(
             [exe, "--version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
-        linha_1 = (out.stdout or out.stderr or "").splitlines()[0] if (out.stdout or out.stderr) else ""
+        linha_1 = (
+            (out.stdout or out.stderr or "").splitlines()[0] if (out.stdout or out.stderr) else ""
+        )
         return (True, linha_1.strip() or "ok")
     except Exception as e:
         return (False, f"erro ao executar: {type(e).__name__}: {e}")
@@ -101,9 +106,7 @@ def verificar_ambiente(forcar: bool = False) -> dict:
             "Instale pelo README (UB-Mannheim) e reinicie o painel."
         )
     if not c_ok:
-        avisos.append(
-            f"Chromium do Playwright ausente — sync SISDPU vai falhar. {c_info}."
-        )
+        avisos.append(f"Chromium do Playwright ausente — sync SISDPU vai falhar. {c_info}.")
 
     _cache = {
         "tesseract_ok": t_ok,

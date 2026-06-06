@@ -132,7 +132,9 @@ async def rodar_sync(baixar_anexos: bool = True) -> AsyncGenerator[str, None]:
     """
     async for linha in _rodar_com_cancel(
         lambda emit: sincronizador.rodar(
-            emit, deve_cancelar=deve_cancelar, baixar_anexos=baixar_anexos,
+            emit,
+            deve_cancelar=deve_cancelar,
+            baixar_anexos=baixar_anexos,
         ),
         None,
     ):
@@ -159,8 +161,10 @@ async def rodar_sync_paj(
     if na_watchlist:
         async for linha in _rodar_com_cancel(
             lambda emit: sincronizador.rodar_paj_via_busca_global(
-                paj_identificador, emit,
-                deve_cancelar=deve_cancelar, baixar_anexos=baixar_anexos,
+                paj_identificador,
+                emit,
+                deve_cancelar=deve_cancelar,
+                baixar_anexos=baixar_anexos,
             ),
             None,
         ):
@@ -169,8 +173,10 @@ async def rodar_sync_paj(
 
     async for linha in _rodar_com_cancel(
         lambda emit: sincronizador.rodar_paj_unico(
-            paj_identificador, emit,
-            deve_cancelar=deve_cancelar, baixar_anexos=baixar_anexos,
+            paj_identificador,
+            emit,
+            deve_cancelar=deve_cancelar,
+            baixar_anexos=baixar_anexos,
         ),
         None,
     ):
@@ -188,7 +194,9 @@ async def rodar_sync_watchlist(
     """
     async for linha in _rodar_com_cancel(
         lambda emit: sincronizador.rodar_watchlist(
-            emit, deve_cancelar=deve_cancelar, baixar_anexos=baixar_anexos,
+            emit,
+            deve_cancelar=deve_cancelar,
+            baixar_anexos=baixar_anexos,
         ),
         None,
     ):
@@ -259,7 +267,9 @@ async def rodar_sync_anexos_desde_data(
     """
     async for linha in _rodar_com_cancel(
         lambda emit: sincronizador.rodar_anexos_desde_data(
-            paj_identificador, data_inicio, emit,
+            paj_identificador,
+            data_inicio,
+            emit,
             deve_cancelar=deve_cancelar,
         ),
         None,

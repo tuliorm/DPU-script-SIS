@@ -68,11 +68,12 @@ def _montar_instrucao(paj_pasta, prompt_content: str, skill_slug: str | None) ->
             "despacho no SISDPU, peticao, recurso, manifestacao, memoriais, contestacao, etc. "
             "Use as skills/bases de conhecimento disponiveis no workspace conforme apropriado.\n\n"
         )
-        tipo_saida = "[DESPACHO | PETICAO | RECURSO | MANIFESTACAO | OFICIO | ORIENTACAO | OUTRO — <tipo>]"
+        tipo_saida = (
+            "[DESPACHO | PETICAO | RECURSO | MANIFESTACAO | OFICIO | ORIENTACAO | OUTRO — <tipo>]"
+        )
 
     return (
-        cabecalho
-        + "**OBRIGATORIO**: produzir o TEXTO da peca/despacho/oficio/orientacao, em "
+        cabecalho + "**OBRIGATORIO**: produzir o TEXTO da peca/despacho/oficio/orientacao, em "
         "linguagem apropriada, pronto pra copiar no SISDPU / protocolar / expedir. "
         "Nao basta dizer o que fazer — redija o produto final.\n\n"
         f"Salve o(s) arquivo(s) gerado(s) em `{paj_pasta}\\` "
@@ -109,7 +110,9 @@ class ChatSession:
         self.paj_norm = paj_norm
         # Skill do Oficio Geral a ser invocada (ex: "peticoes-iniciais").
         # Se None, o Claude decide autonomamente (comportamento antigo).
-        self.skill_slug: str | None = skill_slug if skill_slug and skill_valida(skill_slug) else None
+        self.skill_slug: str | None = (
+            skill_slug if skill_slug and skill_valida(skill_slug) else None
+        )
         self.output_queue: queue.Queue[dict] = queue.Queue()
         self.proc: subprocess.Popen | None = None
         self._reader_thread: threading.Thread | None = None
@@ -117,9 +120,9 @@ class ChatSession:
         # Estado pra UI de background:
         # "idle" | "running" | "done" | "error"
         self.status: str = "idle"
-        self.last_action: str = ""       # "Usando Glob", "Escrevendo peca", etc.
+        self.last_action: str = ""  # "Usando Glob", "Escrevendo peca", etc.
         self.accumulated_text: str = ""  # texto acumulado da resposta atual
-        self.summary: str = ""           # resumo final (ultima resposta do Claude)
+        self.summary: str = ""  # resumo final (ultima resposta do Claude)
         self.error: str = ""
 
     def _start_subprocess(self) -> bool:
@@ -132,10 +135,13 @@ class ChatSession:
             *CLAUDE_CMD,
             "-p",
             "--verbose",
-            "--output-format", "stream-json",
-            "--input-format", "stream-json",
+            "--output-format",
+            "stream-json",
+            "--input-format",
+            "stream-json",
             "--include-partial-messages",
-            "--permission-mode", "bypassPermissions",
+            "--permission-mode",
+            "bypassPermissions",
         ]
         try:
             self.proc = subprocess.Popen(
@@ -384,6 +390,7 @@ class ChatSession:
             if not pasta.exists():
                 return
             import datetime as _dt
+
             data = {
                 "status": self.status,
                 "summary": self.summary,
@@ -430,10 +437,7 @@ def ler_elaboracao_disco(paj_norm: str) -> dict | None:
         # paj_service — fonte unica de verdade. Sem isso, a lista local ficava
         # defasada e produzia falsos avisos em PAJs recem-sincronizados que
         # tinham sisdpu.txt/NOTAS.md mas nenhuma peça gerada pela IA.
-        gerados = [
-            x for x in pasta.iterdir()
-            if x.is_file() and x.name not in ARQUIVOS_NAO_PECAS
-        ]
+        gerados = [x for x in pasta.iterdir() if x.is_file() and x.name not in ARQUIVOS_NAO_PECAS]
         if gerados:
             nomes = ", ".join(sorted(x.name for x in gerados))
             return {

@@ -82,16 +82,19 @@ async def api_prazos():
                 restantes = dias_restantes(d, hoje)
             except ValueError:
                 restantes = None
-        out.append({
-            **p,
-            "rito": p.get("rito") or ("manual" if manual else "civel"),
-            "manual": manual,
-            "dias_restantes": restantes,
-        })
+        out.append(
+            {
+                **p,
+                "rito": p.get("rito") or ("manual" if manual else "civel"),
+                "manual": manual,
+                "dias_restantes": restantes,
+            }
+        )
 
     def _chave(item: dict):
         da = (item.get("data_alvo") or "").strip()
         return (da == "", da)
+
     out.sort(key=_chave)
     return {"prazos": out, "hoje": hoje.isoformat()}
 

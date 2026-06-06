@@ -50,9 +50,7 @@ def _configurar_logging() -> None:
         backupCount=7,
         encoding="utf-8",
     )
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    )
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     # Evita duplicar handlers se a funcao for chamada mais de uma vez (reload).
@@ -164,9 +162,7 @@ def _cleanup_port(port: int) -> None:
     if os.name != "nt":
         return
     try:
-        result = subprocess.run(
-            ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True
-        )
+        result = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True)
     except Exception:
         return
     seen: set[int] = set()
@@ -205,6 +201,7 @@ if __name__ == "__main__":
     _kill_pid_file()
     _cleanup_port(PORT)
     import time
+
     time.sleep(1)  # aguarda SO liberar porta
 
     PID_FILE.write_text(str(os.getpid()))

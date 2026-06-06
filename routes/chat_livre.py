@@ -32,6 +32,7 @@ router = APIRouter()
 # Pagina
 # ---------------------------------------------------------------------------
 
+
 @router.get("/chat-livre", response_class=HTMLResponse)
 async def chat_livre_page(request: Request, conv: str = ""):
     """Renderiza o chat. Espera ?conv=<id> apontando para conversa existente.
@@ -52,6 +53,7 @@ async def chat_livre_page(request: Request, conv: str = ""):
 # ---------------------------------------------------------------------------
 # API por PAJ
 # ---------------------------------------------------------------------------
+
 
 @router.get("/api/chat-livre/paj/{paj_norm}/conversas")
 async def api_listar_paj(paj_norm: str):
@@ -77,6 +79,7 @@ async def api_criar_paj(paj_norm: str, payload: dict = Body(default={})):
 # API por id de conversa (sem precisar saber o PAJ)
 # ---------------------------------------------------------------------------
 
+
 @router.get("/api/chat-livre/conversas/{conv_id}")
 async def api_ler(conv_id: str):
     conversa = chat_livre.ler_conversa(conv_id)
@@ -96,9 +99,7 @@ async def api_atualizar(conv_id: str, payload: dict = Body(...)):
         return JSONResponse({"erro": "payload invalido"}, status_code=400)
     titulo = payload.get("titulo")
     skill_slug = payload.get("skill_slug")
-    conversa = chat_livre.atualizar_metadata(
-        conv_id, titulo=titulo, skill_slug=skill_slug
-    )
+    conversa = chat_livre.atualizar_metadata(conv_id, titulo=titulo, skill_slug=skill_slug)
     if not conversa:
         return JSONResponse({"erro": "conversa nao encontrada"}, status_code=404)
     return conversa
@@ -119,6 +120,7 @@ async def api_stats():
 # WebSocket
 # ---------------------------------------------------------------------------
 
+
 @router.websocket("/ws/chat-livre/{conv_id}")
 async def chat_livre_ws(websocket: WebSocket, conv_id: str):
     await websocket.accept()
@@ -134,6 +136,7 @@ async def chat_livre_ws(websocket: WebSocket, conv_id: str):
         sess.start()
 
     try:
+
         async def drenar_output():
             while True:
                 try:

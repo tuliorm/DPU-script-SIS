@@ -114,7 +114,5 @@ def extrair_texto(
 
     resultado = "\n".join(paginas_texto)
     if abortado_em > 0:
-        resultado += (
-            f"\n[OCR abortado pelo usuario na pagina {abortado_em}/{total_paginas}]\n"
-        )
+        resultado += f"\n[OCR abortado pelo usuario na pagina {abortado_em}/{total_paginas}]\n"
     return resultado

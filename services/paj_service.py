@@ -291,9 +291,7 @@ def ler_paj(paj_norm: str) -> dict | None:
     _garantir_prompt_max(pasta)
 
     prompt_max_path = pasta / "PROMPT_MAX.md"
-    prompt_max = (
-        prompt_max_path.read_text(encoding="utf-8") if prompt_max_path.exists() else ""
-    )
+    prompt_max = prompt_max_path.read_text(encoding="utf-8") if prompt_max_path.exists() else ""
 
     # Categorizar arquivos na pasta do PAJ:
     #   despachos       — nomes comecando com "despacho"
@@ -342,16 +340,18 @@ def ler_paj(paj_norm: str) -> dict | None:
             if f.suffix.lower() == ".txt":
                 continue  # o .txt e' listado junto com seu arquivo-fonte
             ocr_companion = txts_ocr.get(f.stem)
-            anexos_sisdpu.append({
-                "nome": f.name,
-                # caminho relativo a pasta do PAJ (usado por /files/<paj>/<path>)
-                "caminho": f"pecas/{f.name}",
-                "tipo": f.suffix.lstrip(".").lower(),
-                "tamanho": f.stat().st_size,
-                "modificado": f.stat().st_mtime,
-                "tem_ocr": ocr_companion is not None and ocr_companion.stat().st_size > 0,
-                "caminho_ocr": f"pecas/{ocr_companion.name}" if ocr_companion else None,
-            })
+            anexos_sisdpu.append(
+                {
+                    "nome": f.name,
+                    # caminho relativo a pasta do PAJ (usado por /files/<paj>/<path>)
+                    "caminho": f"pecas/{f.name}",
+                    "tipo": f.suffix.lstrip(".").lower(),
+                    "tamanho": f.stat().st_size,
+                    "modificado": f.stat().st_mtime,
+                    "tem_ocr": ocr_companion is not None and ocr_companion.stat().st_size > 0,
+                    "caminho_ocr": f"pecas/{ocr_companion.name}" if ocr_companion else None,
+                }
+            )
 
     return {
         "metadata": metadata,
@@ -454,20 +454,24 @@ def limpar_anexos_paj(
                 continue
             if f.suffix.lower() == ".txt":
                 # Preserva TODOS os .txt (sao os OCRs)
-                arquivos_preservados.append({
-                    "nome": f.name,
-                    "tamanho": f.stat().st_size,
-                    "motivo": "OCR companion (preservado)",
-                })
+                arquivos_preservados.append(
+                    {
+                        "nome": f.name,
+                        "tamanho": f.stat().st_size,
+                        "motivo": "OCR companion (preservado)",
+                    }
+                )
                 continue
             ocr_companion = txts_ocr.get(f.stem)
             tem_ocr = ocr_companion is not None and ocr_companion.stat().st_size > 0
-            arquivos_a_remover.append({
-                "nome": f.name,
-                "caminho": f"pecas/{f.name}",
-                "tamanho": f.stat().st_size,
-                "tem_ocr": tem_ocr,
-            })
+            arquivos_a_remover.append(
+                {
+                    "nome": f.name,
+                    "caminho": f"pecas/{f.name}",
+                    "tamanho": f.stat().st_size,
+                    "tem_ocr": tem_ocr,
+                }
+            )
 
     # Avalia safeguards
     motivos_bloqueio: list[str] = []
@@ -528,6 +532,7 @@ def limpar_anexos_paj(
         metadata["n_anexos_removidos"] = metadata.get("n_anexos_removidos", 0) + removidos
         metadata["anexos_removidos_em"] = metadata.get("anexos_removidos_em", [])
         from datetime import datetime
+
         metadata["anexos_removidos_em"].append(datetime.now().isoformat(timespec="seconds"))
         with contextlib.suppress(Exception):
             (pasta / "metadata.json").write_text(
@@ -543,11 +548,7 @@ def listar_pecas_assistido(assistido: str) -> list[dict]:
     if not assistido or not PECAS_FEITAS_DIR.exists():
         return []
 
-    tokens = [
-        _normalizar(t)
-        for t in re.split(r"[\s,]+", assistido)
-        if len(t) >= 4
-    ]
+    tokens = [_normalizar(t) for t in re.split(r"[\s,]+", assistido) if len(t) >= 4]
     if not tokens:
         return []
 
@@ -557,13 +558,15 @@ def listar_pecas_assistido(assistido: str) -> list[dict]:
             continue
         nome_norm = _normalizar(f.name)
         if any(tok in nome_norm for tok in tokens):
-            resultado.append({
-                "nome": f.name,
-                "caminho": str(f),
-                "tipo": f.suffix.lstrip(".").lower(),
-                "tamanho": f.stat().st_size,
-                "modificado": f.stat().st_mtime,
-            })
+            resultado.append(
+                {
+                    "nome": f.name,
+                    "caminho": str(f),
+                    "tipo": f.suffix.lstrip(".").lower(),
+                    "tamanho": f.stat().st_size,
+                    "modificado": f.stat().st_mtime,
+                }
+            )
     resultado.sort(key=lambda x: x["modificado"], reverse=True)
     return resultado
 
@@ -571,6 +574,7 @@ def listar_pecas_assistido(assistido: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Notas pessoais por PAJ — NOTAS.md na pasta do PAJ
 # ---------------------------------------------------------------------------
+
 
 def _validar_paj_norm(paj_norm: str) -> Path | None:
     """Valida paj_norm e retorna a pasta (ou None se invalido)."""

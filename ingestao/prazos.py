@@ -110,14 +110,14 @@ def detectar_prazos_novos(
         }
     """
     seqs_antigas = set()
-    for m in (movs_antigas or []):
+    for m in movs_antigas or []:
         try:
             seqs_antigas.add(int(m.get("seq", 0) or 0))
         except Exception:
             continue
 
     novos: list[dict] = []
-    for m in (movs_novas or []):
+    for m in movs_novas or []:
         try:
             seq = int(m.get("seq", 0) or 0)
         except Exception:
@@ -153,20 +153,22 @@ def detectar_prazos_novos(
         if assistido:
             titulo += f" — {assistido[:60]}"
 
-        novos.append({
-            "id": _id_prazo(paj_norm, seq),
-            "paj_norm": paj_norm,
-            "titulo": titulo,
-            "descricao": desc[:500],
-            "data_mov": data_mov.isoformat() if data_mov else "",
-            "prazo_dias": dias,
-            "data_alvo": data_alvo.isoformat() if data_alvo else "",
-            "rito": rito.value,
-            "em_dobro": em_dobro,
-            "assistido": assistido,
-            "fonte_mov_seq": seq,
-            "status": "pendente",
-            "detectado_em": dt.datetime.now().isoformat(timespec="seconds"),
-        })
+        novos.append(
+            {
+                "id": _id_prazo(paj_norm, seq),
+                "paj_norm": paj_norm,
+                "titulo": titulo,
+                "descricao": desc[:500],
+                "data_mov": data_mov.isoformat() if data_mov else "",
+                "prazo_dias": dias,
+                "data_alvo": data_alvo.isoformat() if data_alvo else "",
+                "rito": rito.value,
+                "em_dobro": em_dobro,
+                "assistido": assistido,
+                "fonte_mov_seq": seq,
+                "status": "pendente",
+                "detectado_em": dt.datetime.now().isoformat(timespec="seconds"),
+            }
+        )
 
     return novos

@@ -94,9 +94,7 @@ async def gerar_artefato(
                 bufsize=1,
             )
             for linha in iter(proc.stdout.readline, ""):
-                asyncio.run_coroutine_threadsafe(
-                    q.put(linha.rstrip("\n")), loop
-                )
+                asyncio.run_coroutine_threadsafe(q.put(linha.rstrip("\n")), loop)
             proc.wait()
             if proc.returncode != 0:
                 asyncio.run_coroutine_threadsafe(
@@ -104,13 +102,9 @@ async def gerar_artefato(
                     loop,
                 )
         except FileNotFoundError as e:
-            asyncio.run_coroutine_threadsafe(
-                q.put(f"[ERRO] comando nao encontrado: {e}"), loop
-            )
+            asyncio.run_coroutine_threadsafe(q.put(f"[ERRO] comando nao encontrado: {e}"), loop)
         except Exception as e:
-            asyncio.run_coroutine_threadsafe(
-                q.put(f"[ERRO] {type(e).__name__}: {e}"), loop
-            )
+            asyncio.run_coroutine_threadsafe(q.put(f"[ERRO] {type(e).__name__}: {e}"), loop)
         finally:
             asyncio.run_coroutine_threadsafe(q.put(None), loop)
 
@@ -142,7 +136,4 @@ async def gerar_artefato(
         except Exception as e:
             yield f"[AVISO] gerado em {origem} mas falhou ao copiar: {e}\n"
     else:
-        yield (
-            f"[AVISO] arquivo esperado nao encontrado em {origem} — "
-            "veja os logs acima.\n"
-        )
+        yield (f"[AVISO] arquivo esperado nao encontrado em {origem} — veja os logs acima.\n")

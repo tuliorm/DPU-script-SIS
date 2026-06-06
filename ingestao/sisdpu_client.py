@@ -48,6 +48,7 @@ def _purgar_debug_dir_antigos(reter: int = _DEBUG_DIR_RETER) -> None:
         return
     with contextlib.suppress(Exception):
         import shutil
+
         subpastas = [p for p in _DEBUG_DIR.iterdir() if p.is_dir()]
         if len(subpastas) <= reter:
             return
@@ -59,6 +60,7 @@ def _purgar_debug_dir_antigos(reter: int = _DEBUG_DIR_RETER) -> None:
 
 class CredenciaisInvalidas(Exception):
     """SISDPU rejeitou usuario/senha no login."""
+
     pass
 
 
@@ -139,9 +141,7 @@ async def _login() -> None:
     user = os.environ.get("SISDPU_USERNAME", "")
     senha = os.environ.get("SISDPU_PASSWORD", "")
     if not user or not senha:
-        raise RuntimeError(
-            "SISDPU_USERNAME/SISDPU_PASSWORD não definidos no ambiente (.env)"
-        )
+        raise RuntimeError("SISDPU_USERNAME/SISDPU_PASSWORD não definidos no ambiente (.env)")
     page = await _get_page()
     await page.goto(f"{SISDPU_URL}/login.xhtml", wait_until="domcontentloaded")
     await page.wait_for_selector(_sel("frmLogin:epaj_input_usuario"), timeout=15000)
@@ -560,7 +560,9 @@ async def _dump_debug_paj(
             with contextlib.suppress(Exception):
                 (pasta / f"{nome}_page.html").write_text(await pg.content(), encoding="utf-8")
             with contextlib.suppress(Exception):
-                (pasta / f"{nome}_body.txt").write_text(await pg.inner_text("body"), encoding="utf-8")
+                (pasta / f"{nome}_body.txt").write_text(
+                    await pg.inner_text("body"), encoding="utf-8"
+                )
             with contextlib.suppress(Exception):
                 info.append(f"{nome}_url: {pg.url}")
 
@@ -569,7 +571,9 @@ async def _dump_debug_paj(
 
 
 async def buscar_paj_global(
-    numero: str, ano: str, unidade: str = "44",
+    numero: str,
+    ano: str,
+    unidade: str = "44",
 ) -> dict:
     """Busca um PAJ via campo de pesquisa global do SISDPU (header da caixa).
 
@@ -644,7 +648,10 @@ async def buscar_paj_global(
         )
         with contextlib.suppress(Exception):
             pasta = await _dump_debug_paj(
-                page, paj_texto, msg, extras={"sessao": sessao_viva},
+                page,
+                paj_texto,
+                msg,
+                extras={"sessao": sessao_viva},
             )
             _log.warning("FIM(sessao-morta) debug salvo em: %s", pasta)
         return {"erro": msg}
@@ -692,8 +699,8 @@ async def buscar_paj_global(
     numero_z = numero.zfill(5)
     unidade_z = unidade.zfill(3)
     tentativas = [
-        f"{ano}/{unidade_z}-{numero_z}",          # 2024/003-00512 (formato PAJ canonico)
-        f"{ano}{unidade_z}{numero_z}",            # 202400300512 (12 digitos puros)
+        f"{ano}/{unidade_z}-{numero_z}",  # 2024/003-00512 (formato PAJ canonico)
+        f"{ano}{unidade_z}{numero_z}",  # 202400300512 (12 digitos puros)
     ]
     vistos: set[str] = set()
     tentativas = [t for t in tentativas if not (t in vistos or vistos.add(t))]
@@ -771,7 +778,8 @@ async def buscar_paj_global(
             popup_url_inicial = popup_capturado.url
             with contextlib.suppress(Exception):
                 await popup_capturado.wait_for_load_state(
-                    "domcontentloaded", timeout=15000,
+                    "domcontentloaded",
+                    timeout=15000,
                 )
 
             tem_header = False
@@ -790,7 +798,8 @@ async def buscar_paj_global(
                     await _wait_pf_ajax(popup_capturado, timeout=10000)
                 await popup_capturado.wait_for_timeout(500)
                 _log.info(
-                    "  popup OK url=%s", popup_capturado.url,
+                    "  popup OK url=%s",
+                    popup_capturado.url,
                 )
                 page_detalhe = popup_capturado
                 sucesso = True
@@ -798,7 +807,9 @@ async def buscar_paj_global(
 
             # ETAPA 2: fallback — navega janela principal pra popup_url
             popup_url_final = popup_capturado.url
-            url_alvo = popup_url_final if "detalhamentoProcesso" in popup_url_final else popup_url_inicial
+            url_alvo = (
+                popup_url_final if "detalhamentoProcesso" in popup_url_final else popup_url_inicial
+            )
             _log.info(
                 "  popup nao renderizou em 10s — fallback: navegar janela principal pra %s",
                 url_alvo,
@@ -809,9 +820,7 @@ async def buscar_paj_global(
                 await popup_capturado.close()
 
             if not url_alvo or "detalhamentoProcesso" not in url_alvo:
-                erro_ultimo = (
-                    f"popup '{termo}' nao renderizou e URL inesperada: {url_alvo!r}"
-                )
+                erro_ultimo = f"popup '{termo}' nao renderizou e URL inesperada: {url_alvo!r}"
                 debug_acumulado.append({"termo": termo, "popup_url": url_alvo})
                 continue
 
@@ -848,7 +857,8 @@ async def buscar_paj_global(
             # Mesmo o fallback falhou — dumpa tudo pra diagnostico
             with contextlib.suppress(Exception):
                 pasta_dbg = await _dump_debug_paj(
-                    page, paj_texto,
+                    page,
+                    paj_texto,
                     f"popup '{termo}' nao renderizou + fallback nao carregou cabecalho",
                     extras={
                         "termo": termo,
@@ -885,7 +895,8 @@ async def buscar_paj_global(
         tem_header_detalhe = bool(re_pag_detalhe.search(body))
         _log.info(
             "  pos-pesquisa (janela atual) url=%s tem_header_detalhe=%s",
-            page.url, tem_header_detalhe,
+            page.url,
+            tem_header_detalhe,
         )
         if tem_header_detalhe:
             page_detalhe = page
@@ -909,7 +920,9 @@ async def buscar_paj_global(
         msg = erro_ultimo or "PAJ nao encontrado via pesquisa global"
         with contextlib.suppress(Exception):
             pasta = await _dump_debug_paj(
-                page, paj_texto, msg,
+                page,
+                paj_texto,
+                msg,
                 extras={"tentativas": debug_acumulado},
             )
             _log.warning("FIM(falha) debug salvo em: %s", pasta)
@@ -1080,7 +1093,9 @@ async def buscar_paj_global(
     n_movs = len(dados.get("movimentacoes", []) or [])
     _log.info(
         "extracao: assistido=%s paj=%s movs=%d",
-        bool(dados.get("assistido")), dados.get("paj", "?"), n_movs,
+        bool(dados.get("assistido")),
+        dados.get("paj", "?"),
+        n_movs,
     )
 
     # Validacao rigorosa: precisa do `paj` extraido pelo regex
@@ -1093,7 +1108,9 @@ async def buscar_paj_global(
         )
         with contextlib.suppress(Exception):
             pasta = await _dump_debug_paj(
-                page, paj_texto, msg,
+                page,
+                paj_texto,
+                msg,
                 extras={"dados_parciais": {k: v for k, v in dados.items() if k != "movimentacoes"}},
             )
             _log.warning("FIM(sem-paj) debug salvo em: %s", pasta)
@@ -1109,11 +1126,12 @@ async def buscar_paj_global(
     # depois que a extracao estiver estavel.
     with contextlib.suppress(Exception):
         pasta = await _dump_debug_paj(
-            page, paj_texto, "sucesso (dump pra afinacao)",
+            page,
+            paj_texto,
+            "sucesso (dump pra afinacao)",
             extras={
                 "campos_extraidos": {
-                    k: v for k, v in dados.items()
-                    if k not in ("movimentacoes", "sisdpu_raw")
+                    k: v for k, v in dados.items() if k not in ("movimentacoes", "sisdpu_raw")
                 },
             },
         )
@@ -1441,6 +1459,7 @@ async def baixar_anexo_por_indice(row_index: int, destino):
     Retorna Path do arquivo salvo (com extensao final) ou None se falhou.
     """
     from pathlib import Path as _Path
+
     destino = _Path(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)
 

@@ -18,9 +18,7 @@ from config import PAJS_DIR
 from ingestao.parser import montar_metadata
 
 
-def migrar_um(
-    arquivo_txt: Path, destino_base: Path, dry_run: bool, force: bool
-) -> tuple[str, str]:
+def migrar_um(arquivo_txt: Path, destino_base: Path, dry_run: bool, force: bool) -> tuple[str, str]:
     """Migra um .txt. Retorna (status, mensagem)."""
     paj_norm = arquivo_txt.stem
     pasta_destino = destino_base / paj_norm
@@ -51,9 +49,7 @@ def migrar_um(
     pasta_destino.mkdir(parents=True, exist_ok=True)
     if not sisdpu_path.exists():
         shutil.copy2(arquivo_txt, sisdpu_path)
-    metadata_path.write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    metadata_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return ("ok", f"{paj_norm}: migrado ({len(meta['detalhes_sisdpu']['movimentacoes'])} movs)")
 
 

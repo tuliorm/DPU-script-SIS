@@ -78,12 +78,12 @@ def feriados_nacionais(ano: int) -> frozenset[dt.date]:
     a fonte aqui (ex: aniversarios de capital).
     """
     fixos = {
-        dt.date(ano, 1, 1),    # Confraternizacao
-        dt.date(ano, 4, 21),   # Tiradentes
-        dt.date(ano, 5, 1),    # Trabalho
-        dt.date(ano, 9, 7),    # Independencia
+        dt.date(ano, 1, 1),  # Confraternizacao
+        dt.date(ano, 4, 21),  # Tiradentes
+        dt.date(ano, 5, 1),  # Trabalho
+        dt.date(ano, 9, 7),  # Independencia
         dt.date(ano, 10, 12),  # N. Sra. Aparecida
-        dt.date(ano, 11, 2),   # Finados
+        dt.date(ano, 11, 2),  # Finados
         dt.date(ano, 11, 15),  # Proclamacao da Republica
         dt.date(ano, 11, 20),  # Consciencia Negra (federal a partir de 2024)
         dt.date(ano, 12, 25),  # Natal
@@ -92,7 +92,7 @@ def feriados_nacionais(ano: int) -> frozenset[dt.date]:
     moveis = {
         pascoa - dt.timedelta(days=48),  # Segunda de Carnaval
         pascoa - dt.timedelta(days=47),  # Terca de Carnaval
-        pascoa - dt.timedelta(days=2),   # Sexta-feira Santa
+        pascoa - dt.timedelta(days=2),  # Sexta-feira Santa
         pascoa + dt.timedelta(days=60),  # Corpus Christi
     }
     return frozenset(fixos | moveis)
@@ -210,7 +210,10 @@ def inferir_rito(area_paj: str = "", descricao_mov: str = "", foro: str = "") ->
 
     if area in ("criminal", "penal"):
         return Rito.PENAL
-    if any(t in desc for t in ("denuncia", "reu", "alegacoes finais", "habeas corpus", "cautelar penal")):
+    if any(
+        t in desc
+        for t in ("denuncia", "reu", "alegacoes finais", "habeas corpus", "cautelar penal")
+    ):
         return Rito.PENAL
 
     if area == "administrativo":

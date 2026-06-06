@@ -48,54 +48,132 @@ GRUPOS = [
 # acionadas por outros caminhos, nao pelo dropdown "Elaborar".
 SKILL_OVERRIDES: dict[str, dict] = {
     # --- Triagem e análise ---
-    "firac-triagem":              {"label": "FIRAC / triagem",                   "areas": ["*"],                                    "grupo": "Triagem e análise"},
-    "analisar-processo":          {"label": "Analisar processo",                 "areas": ["*"],                                    "grupo": "Triagem e análise"},
-    "hipossuficiencia":           {"label": "Avaliar hipossuficiência",          "areas": ["*"],                                    "grupo": "Triagem e análise"},
-
+    "firac-triagem": {"label": "FIRAC / triagem", "areas": ["*"], "grupo": "Triagem e análise"},
+    "analisar-processo": {
+        "label": "Analisar processo",
+        "areas": ["*"],
+        "grupo": "Triagem e análise",
+    },
+    "hipossuficiencia": {
+        "label": "Avaliar hipossuficiência",
+        "areas": ["*"],
+        "grupo": "Triagem e análise",
+    },
     # --- Ação extrajudicial ---
-    "oficios":                    {"label": "Ofício extrajudicial",              "areas": ["*"],                                    "grupo": "Ação extrajudicial"},
-
+    "oficios": {"label": "Ofício extrajudicial", "areas": ["*"], "grupo": "Ação extrajudicial"},
     # --- Petição inicial ---
-    "peticoes-iniciais":          {"label": "Petição inicial (cível)",           "areas": ["Civel", "Administrativo"],              "grupo": "Petição inicial"},
-    "saude-tema-1234":            {"label": "Inicial de saúde (Tema 1234/6)",    "areas": ["Saude"],                                "grupo": "Petição inicial"},
-    "saude-geral":                {"label": "Saúde — peça geral",                "areas": ["Saude"],                                "grupo": "Petição inicial"},
-    "previdenciario-geral":       {"label": "Previdenciário — inicial",          "areas": ["Previdenciario"],                       "grupo": "Petição inicial"},
-    "ri-previdenciario":          {"label": "Recurso Inominado previdenciário",  "areas": ["Previdenciario"],                       "grupo": "Petição inicial"},
-    "ri-pbf":                     {"label": "Recurso Inominado PBF",             "areas": ["Previdenciario"],                       "grupo": "Petição inicial"},
-    "curadoria-especial":         {"label": "Curadoria especial",                "areas": ["Curadoria", "Civel"],                   "grupo": "Petição inicial"},
-
+    "peticoes-iniciais": {
+        "label": "Petição inicial (cível)",
+        "areas": ["Civel", "Administrativo"],
+        "grupo": "Petição inicial",
+    },
+    "saude-tema-1234": {
+        "label": "Inicial de saúde (Tema 1234/6)",
+        "areas": ["Saude"],
+        "grupo": "Petição inicial",
+    },
+    "saude-geral": {"label": "Saúde — peça geral", "areas": ["Saude"], "grupo": "Petição inicial"},
+    "previdenciario-geral": {
+        "label": "Previdenciário — inicial",
+        "areas": ["Previdenciario"],
+        "grupo": "Petição inicial",
+    },
+    "ri-previdenciario": {
+        "label": "Recurso Inominado previdenciário",
+        "areas": ["Previdenciario"],
+        "grupo": "Petição inicial",
+    },
+    "ri-pbf": {
+        "label": "Recurso Inominado PBF",
+        "areas": ["Previdenciario"],
+        "grupo": "Petição inicial",
+    },
+    "curadoria-especial": {
+        "label": "Curadoria especial",
+        "areas": ["Curadoria", "Civel"],
+        "grupo": "Petição inicial",
+    },
     # --- Peça processual ---
-    "recursos-civel":             {"label": "Recurso cível (genérico)",          "areas": ["Civel", "Previdenciario", "Saude"],     "grupo": "Peça processual"},
-    "apelacao-criminal":          {"label": "Apelação criminal",                 "areas": ["Criminal"],                             "grupo": "Peça processual"},
-    "alegacoes-finais-criminal":  {"label": "Alegações finais criminais",        "areas": ["Criminal"],                             "grupo": "Peça processual"},
-    "audiencia-custodia":         {"label": "Audiência de custódia",             "areas": ["Criminal"],                             "grupo": "Peça processual"},
-    "criminal-geral":             {"label": "Criminal — peça geral",             "areas": ["Criminal"],                             "grupo": "Peça processual"},
-    "relatorio-pre-audiencia":    {"label": "Relatório pré-audiência",           "areas": ["Criminal"],                             "grupo": "Peça processual"},
-    "impugnacao-civel":           {"label": "Impugnação cível",                  "areas": ["Civel", "Execucao"],                    "grupo": "Peça processual"},
-    "embargos-declaracao":        {"label": "Embargos de declaração",            "areas": ["*"],                                    "grupo": "Peça processual"},
-    "contrarrazoes-ed":           {"label": "Contrarrazões a ED",                "areas": ["*"],                                    "grupo": "Peça processual"},
-    "cumprimento-sentenca":       {"label": "Cumprimento de sentença",           "areas": ["Execucao", "Civel", "Previdenciario"],  "grupo": "Peça processual"},
-    "desbloqueio-sisbajud":       {"label": "Desbloqueio SISBAJUD",              "areas": ["Execucao", "Civel"],                    "grupo": "Peça processual"},
-    "execucao-fiscal":            {"label": "Execução fiscal",                   "areas": ["Execucao"],                             "grupo": "Peça processual"},
-    "cdc-cef":                    {"label": "CDC / CEF",                         "areas": ["Civel"],                                "grupo": "Peça processual"},
-    "civel-geral":                {"label": "Cível — peça geral",                "areas": ["Civel"],                                "grupo": "Peça processual"},
-
+    "recursos-civel": {
+        "label": "Recurso cível (genérico)",
+        "areas": ["Civel", "Previdenciario", "Saude"],
+        "grupo": "Peça processual",
+    },
+    "apelacao-criminal": {
+        "label": "Apelação criminal",
+        "areas": ["Criminal"],
+        "grupo": "Peça processual",
+    },
+    "alegacoes-finais-criminal": {
+        "label": "Alegações finais criminais",
+        "areas": ["Criminal"],
+        "grupo": "Peça processual",
+    },
+    "audiencia-custodia": {
+        "label": "Audiência de custódia",
+        "areas": ["Criminal"],
+        "grupo": "Peça processual",
+    },
+    "criminal-geral": {
+        "label": "Criminal — peça geral",
+        "areas": ["Criminal"],
+        "grupo": "Peça processual",
+    },
+    "relatorio-pre-audiencia": {
+        "label": "Relatório pré-audiência",
+        "areas": ["Criminal"],
+        "grupo": "Peça processual",
+    },
+    "impugnacao-civel": {
+        "label": "Impugnação cível",
+        "areas": ["Civel", "Execucao"],
+        "grupo": "Peça processual",
+    },
+    "embargos-declaracao": {
+        "label": "Embargos de declaração",
+        "areas": ["*"],
+        "grupo": "Peça processual",
+    },
+    "contrarrazoes-ed": {"label": "Contrarrazões a ED", "areas": ["*"], "grupo": "Peça processual"},
+    "cumprimento-sentenca": {
+        "label": "Cumprimento de sentença",
+        "areas": ["Execucao", "Civel", "Previdenciario"],
+        "grupo": "Peça processual",
+    },
+    "desbloqueio-sisbajud": {
+        "label": "Desbloqueio SISBAJUD",
+        "areas": ["Execucao", "Civel"],
+        "grupo": "Peça processual",
+    },
+    "execucao-fiscal": {
+        "label": "Execução fiscal",
+        "areas": ["Execucao"],
+        "grupo": "Peça processual",
+    },
+    "cdc-cef": {"label": "CDC / CEF", "areas": ["Civel"], "grupo": "Peça processual"},
+    "civel-geral": {"label": "Cível — peça geral", "areas": ["Civel"], "grupo": "Peça processual"},
     # --- Despacho SIS ---
-    "despacho-sis":               {"label": "Despacho SIS",                      "areas": ["*"],                                    "grupo": "Despacho SIS"},
-
+    "despacho-sis": {"label": "Despacho SIS", "areas": ["*"], "grupo": "Despacho SIS"},
     # --- Utilidades ---
-    "melhorar-textos":            {"label": "Melhorar textos",                   "areas": ["*"],                                    "grupo": "Utilidades"},
-    "cross-examination":          {"label": "Cross examination (preparo)",       "areas": ["Criminal"],                             "grupo": "Utilidades"},
-    "superacao-barreiras":        {"label": "Superar barreiras processuais",     "areas": ["*"],                                    "grupo": "Utilidades"},
-
+    "melhorar-textos": {"label": "Melhorar textos", "areas": ["*"], "grupo": "Utilidades"},
+    "cross-examination": {
+        "label": "Cross examination (preparo)",
+        "areas": ["Criminal"],
+        "grupo": "Utilidades",
+    },
+    "superacao-barreiras": {
+        "label": "Superar barreiras processuais",
+        "areas": ["*"],
+        "grupo": "Utilidades",
+    },
     # --- Skills internas: nao expor no dropdown ---
     # `areas: []` sinaliza ao auto-discovery que estas devem ser escondidas.
     # Nao remove a skill do workspace — so nao aparece neste catalogo.
-    "sis-caixa":                  {"areas": []},
-    "dpu-digital":                {"areas": []},
-    "ocr-documentos":             {"areas": []},
-    "exportar-documento":         {"areas": []},
-    "sync_calendar":              {"areas": []},
+    "sis-caixa": {"areas": []},
+    "dpu-digital": {"areas": []},
+    "ocr-documentos": {"areas": []},
+    "exportar-documento": {"areas": []},
+    "sync_calendar": {"areas": []},
 }
 
 
@@ -184,13 +262,15 @@ def _carregar_skills() -> list[dict]:
             continue
 
         areas = override.get("areas", ["*"])
-        skills.append({
-            "slug": slug,
-            "label": override.get("label") or _label_padrao(slug),
-            "descricao": descricao or override.get("descricao", ""),
-            "areas": list(areas),
-            "grupo": override.get("grupo") or "Utilidades",
-        })
+        skills.append(
+            {
+                "slug": slug,
+                "label": override.get("label") or _label_padrao(slug),
+                "descricao": descricao or override.get("descricao", ""),
+                "areas": list(areas),
+                "grupo": override.get("grupo") or "Utilidades",
+            }
+        )
     return skills
 
 

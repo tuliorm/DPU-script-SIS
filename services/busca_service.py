@@ -24,8 +24,7 @@ _cache: dict = {"ts": 0.0, "corpus": []}
 
 def _sem_acento(s: str) -> str:
     return "".join(
-        c for c in unicodedata.normalize("NFD", s or "")
-        if unicodedata.category(c) != "Mn"
+        c for c in unicodedata.normalize("NFD", s or "") if unicodedata.category(c) != "Mn"
     ).lower()
 
 
@@ -86,7 +85,7 @@ def _montar_corpus() -> list[dict]:
         det = meta.get("detalhes_sisdpu", {}) or {}
         meta_partes.append(det.get("status_paj", "") or "")
         # Cabecalho e partes contadas tambem sao uteis
-        for parte in (det.get("partes", []) or []):
+        for parte in det.get("partes", []) or []:
             meta_partes.append(str(parte))
 
         meta_blob = " | ".join(p for p in meta_partes if p)
@@ -101,14 +100,16 @@ def _montar_corpus() -> list[dict]:
                 if f.is_file() and f.suffix.lower() == ".txt":
                     ocr_docs.append({"arquivo": f.name, "texto": _ler_texto(f)})
 
-        corpus.append({
-            "paj_norm": paj_norm,
-            "meta_blob": meta_blob,
-            "sisdpu_blob": sisdpu_blob,
-            "ocr_docs": ocr_docs,
-            "assistido": meta.get("assistido_caixa", ""),
-            "etiqueta": meta.get("etiqueta_sisdpu", ""),
-        })
+        corpus.append(
+            {
+                "paj_norm": paj_norm,
+                "meta_blob": meta_blob,
+                "sisdpu_blob": sisdpu_blob,
+                "ocr_docs": ocr_docs,
+                "assistido": meta.get("assistido_caixa", ""),
+                "etiqueta": meta.get("etiqueta_sisdpu", ""),
+            }
+        )
 
     return corpus
 
@@ -128,7 +129,9 @@ def invalidar_cache() -> None:
     _cache["ts"] = 0.0
 
 
-def _extrair_trecho(texto_normalizado: str, texto_original: str, termo_norm: str, janela: int = 120) -> str:
+def _extrair_trecho(
+    texto_normalizado: str, texto_original: str, termo_norm: str, janela: int = 120
+) -> str:
     """Acha match em texto_normalizado, retorna trecho do texto_original com <mark>."""
     i = texto_normalizado.find(termo_norm)
     if i < 0:
@@ -207,15 +210,17 @@ def buscar(q: str, limite: int = 50) -> list[dict]:
                         melhor_arquivo = ocr["arquivo"]
 
         if score > 0:
-            resultados.append({
-                "paj_norm": doc["paj_norm"],
-                "assistido": doc["assistido"],
-                "etiqueta": doc["etiqueta"],
-                "score": score,
-                "fonte": melhor_fonte,
-                "arquivo": melhor_arquivo,
-                "trecho": melhor_trecho,
-            })
+            resultados.append(
+                {
+                    "paj_norm": doc["paj_norm"],
+                    "assistido": doc["assistido"],
+                    "etiqueta": doc["etiqueta"],
+                    "score": score,
+                    "fonte": melhor_fonte,
+                    "arquivo": melhor_arquivo,
+                    "trecho": melhor_trecho,
+                }
+            )
 
     resultados.sort(key=lambda r: (-r["score"], r["paj_norm"]))
     return resultados[:limite]

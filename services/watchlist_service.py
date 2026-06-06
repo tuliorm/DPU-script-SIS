@@ -48,7 +48,12 @@ def listar() -> list[dict]:
     # Ordem: ativos primeiro (mais recentes no topo), encerrados depois.
     def _ord(x: dict) -> tuple:
         st = x.get("status", "ativo")
-        return (0 if st == "ativo" else 1, -datetime.fromisoformat(x.get("adicionado_em", "1970-01-01T00:00:00")).timestamp() if x.get("adicionado_em") else 0)
+        return (
+            0 if st == "ativo" else 1,
+            -datetime.fromisoformat(x.get("adicionado_em", "1970-01-01T00:00:00")).timestamp()
+            if x.get("adicionado_em")
+            else 0,
+        )
 
     with contextlib.suppress(Exception):
         itens.sort(key=_ord)
