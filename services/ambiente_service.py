@@ -8,6 +8,7 @@ Barato (cache em memoria), nao refaz check durante a vida do processo.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -40,12 +41,19 @@ def _chromium_ok() -> tuple[bool, str]:
 
     Checa se o Chromium do Playwright foi instalado via
     `python -m playwright install chromium` — procura o diretorio de cache
-    padrao (`~/AppData/Local/ms-playwright` no Windows, `~/.cache/ms-playwright`
-    em outros).
+    padrao de cada SO (Windows: `~/AppData/Local/ms-playwright`;
+    macOS: `~/Library/Caches/ms-playwright`; Linux: `~/.cache/ms-playwright`)
+    e respeita o override `PLAYWRIGHT_BROWSERS_PATH`.
     """
-    candidatos = [
-        Path.home() / "AppData" / "Local" / "ms-playwright",
-        Path.home() / ".cache" / "ms-playwright",
+    candidatos = []
+    # Override explicito tem prioridade (Playwright honra PLAYWRIGHT_BROWSERS_PATH).
+    env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+    if env_path:
+        candidatos.append(Path(env_path))
+    candidatos += [
+        Path.home() / "AppData" / "Local" / "ms-playwright",  # Windows
+        Path.home() / "Library" / "Caches" / "ms-playwright",  # macOS
+        Path.home() / ".cache" / "ms-playwright",  # Linux
     ]
     for c in candidatos:
         if not c.exists():

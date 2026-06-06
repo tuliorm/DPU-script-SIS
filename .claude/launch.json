@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "DPU-script-SIS",
-      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeExecutable": ".venv/bin/python",
       "runtimeArgs": ["app.py"],
       "port": 8001
     }
