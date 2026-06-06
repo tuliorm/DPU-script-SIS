@@ -49,10 +49,11 @@ O sistema tem dois blocos:
 git clone https://github.com/tuliorm/DPU-script-SIS.git
 cd DPU-script-SIS
 
-# 2. Crie o ambiente virtual
-python -m venv .venv
-.venv\Scripts\activate      # Windows
-# source .venv/bin/activate  # Linux/Mac
+# 2. Crie o ambiente virtual (requer Python 3.11+)
+python -m venv .venv            # Windows
+# python3.12 -m venv .venv      # macOS/Linux (use o 3.11+ do Homebrew; o python3 do sistema no macOS é 3.9)
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS/Linux
 
 # 3. Instale as dependências
 pip install -r requirements.txt
@@ -60,15 +61,17 @@ pip install -r requirements.txt
 # 4. Instale o Chromium do Playwright
 python -m playwright install chromium
 
-# 5. Instale o Tesseract OCR (Windows)
-# Baixe em: https://github.com/UB-Mannheim/tesseract/wiki
-# Marque o idioma "Portuguese" durante a instalacao
-# Caminho padrao: C:\Program Files\Tesseract-OCR\
-# Verifique:
+# 5. Instale o Tesseract OCR (idioma "por")
+#   Windows: baixe em https://github.com/UB-Mannheim/tesseract/wiki
+#            marque "Portuguese"; caminho padrao C:\Program Files\Tesseract-OCR\
+#   macOS:   brew install tesseract tesseract-lang
+#   Linux:   sudo apt install tesseract-ocr tesseract-ocr-por
+# Verifique (precisa estar no PATH):
 tesseract --version
 
 # 6. Configure o .env
-copy .env.example .env
+copy .env.example .env       # Windows
+# cp .env.example .env       # macOS/Linux
 # Edite .env e preencha:
 #   OFICIO_GERAL    = caminho para o workspace do Defensor
 #   SISDPU_USERNAME = seu usuario do SISDPU
@@ -83,6 +86,7 @@ Edite o arquivo `.env`:
 
 ```env
 OFICIO_GERAL=C:\Users\<seu_usuario>\Desktop\Ofício Geral
+# macOS/Linux: OFICIO_GERAL=/Users/<seu_usuario>/Desktop/Ofício Geral
 OFICIO_DESCRICAO=2ª Categoria - DPU/UF
 SISDPU_USERNAME=seu.usuario
 SISDPU_PASSWORD=sua.senha
@@ -96,7 +100,8 @@ SISDPU_PASSWORD=sua.senha
 
 ```bash
 # Iniciar o servidor (porta 8001)
-.venv\Scripts\python.exe app.py
+.venv\Scripts\python.exe app.py     # Windows
+# .venv/bin/python app.py           # macOS/Linux
 
 # Acessar no navegador
 # http://localhost:8001
