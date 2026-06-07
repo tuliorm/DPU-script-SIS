@@ -39,6 +39,14 @@ MAX_ANEXOS_POR_PAJ = int(os.getenv("MAX_ANEXOS_POR_PAJ", "30"))
 # corrompidos podem travar o OCR — esse limite garante progresso.
 TIMEOUT_OCR_POR_PAGINA_SEG = int(os.getenv("TIMEOUT_OCR_POR_PAGINA_SEG", "30"))
 
+# Modelo usado pela ELABORACAO de pecas (Claude Code CLI), tanto individual
+# quanto em lote. Default: Opus com janela de 1M tokens — o melhor pra analise
+# juridica densa (le todos os anexos sem estourar contexto). Fixar aqui evita
+# depender do default da conta (~/.claude/settings.json). Ajuste no .env se
+# precisar: ELABORACAO_MODELO=opus / sonnet / claude-opus-4-8 / etc. Defina
+# vazio ("") pra deixar o CLI escolher o default da conta.
+ELABORACAO_MODELO = os.getenv("ELABORACAO_MODELO", "opus[1m]")
+
 # Pasta onde DOCX/PDF gerados pelo docgen sao salvos.
 # Default: <OFICIO_GERAL>/Peças Feitas
 DOCGEN_OUT_DIR = Path(os.getenv("DOCGEN_OUT_DIR", str(OFICIO_GERAL / "Peças Feitas")))

@@ -174,6 +174,52 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
                 "tambem em `sisdpu.txt` nesta mesma pasta caso prefira ler isolado."
             )
 
+    # Inventario dos anexos baixados do SIS (pecas/). A elaboracao instrui
+    # leitura EXAUSTIVA — aqui listamos o que existe e sinalizamos OCR fraco/
+    # ausente (pra o Claude abrir o PDF original com visao nesses casos).
+    pasta_pecas = pasta / "pecas"
+    if pasta_pecas.exists() and pasta_pecas.is_dir():
+        txts_ocr = {
+            f.stem: f
+            for f in pasta_pecas.iterdir()
+            if f.is_file() and f.suffix.lower() == ".txt"
+        }
+        binarios = [
+            f
+            for f in sorted(pasta_pecas.iterdir())
+            if f.is_file() and f.suffix.lower() != ".txt"
+        ]
+        if binarios:
+            partes.append("")
+            partes.append(f"## Anexos baixados do SIS — `pecas/` ({len(binarios)}) — LER TODOS")
+            partes.append(
+                "Leia cada anexo relevante na íntegra antes de redigir (o `.txt` é o "
+                "texto OCR). Onde marcado **OCR fraco/ausente**, abra o PDF original "
+                "com sua capacidade de visão — não confie só no OCR."
+            )
+            for b in binarios:
+                ocr = txts_ocr.get(b.stem)
+                if ocr is None:
+                    partes.append(f"- `pecas/{b.name}` — **sem OCR**; abrir o PDF com visão")
+                    continue
+                try:
+                    conteudo = ocr.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    conteudo = ""
+                n = len(conteudo.strip())
+                fraco = (
+                    n < 120 or "[OCR indisponivel]" in conteudo or "[pagina ilegivel" in conteudo
+                )
+                if fraco:
+                    partes.append(
+                        f"- `pecas/{ocr.name}` (~{n} chars) — **OCR fraco/ausente**; "
+                        f"abrir o PDF `pecas/{b.name}` com visão"
+                    )
+                else:
+                    partes.append(
+                        f"- `pecas/{ocr.name}` (~{n} chars) · original: `pecas/{b.name}`"
+                    )
+
     if pecas_antes:
         partes.append("")
         partes.append(f"## Pecas anteriores do mesmo assistido ({len(pecas_antes)})")

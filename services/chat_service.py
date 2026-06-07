@@ -9,7 +9,7 @@ import sys
 import threading
 import queue
 
-from config import OFICIO_GERAL, PAJS_DIR
+from config import ELABORACAO_MODELO, OFICIO_GERAL, PAJS_DIR
 from services import historico
 from services.paj_service import IGNORAR as ARQUIVOS_NAO_PECAS
 from services.paj_service import listar_pajs
@@ -35,6 +35,25 @@ def _resolver_claude_cmd() -> list[str]:
 
 
 CLAUDE_CMD: list[str] = _resolver_claude_cmd()
+
+
+# Diretrizes de profundidade (esforco maximo) injetadas em toda elaboracao —
+# aproveitam o Opus 1M e a cota do defensor. (1) raciocinio estendido antes de
+# redigir; (2) leitura EXAUSTIVA dos anexos OCR; (3) visao no PDF quando o OCR
+# falha. O inventario de anexos vem no PROMPT_MAX (secao "Anexos baixados").
+_DIRETRIZES_PROFUNDIDADE = (
+    "## Como trabalhar este PAJ (esforço máximo — não economize)\n"
+    "1. **ultrathink**: antes de redigir, raciocine a fundo sobre o estado "
+    "processual, prazos, o polo ocupado pela DPU/assistido e as teses cabíveis; "
+    "pondere alternativas e escolha a melhor.\n"
+    "2. **Leia TODOS os anexos** baixados do SIS — estão listados na seção "
+    "'Anexos baixados do SIS' do contexto, como arquivos `pecas/*.txt` (texto "
+    "OCR). Não se baseie só nas movimentações: abra e leia cada anexo relevante "
+    "na íntegra antes de decidir o produto.\n"
+    "3. **OCR fraco/ausente**: para anexos assim sinalizados (ou cujo `.txt` "
+    "esteja ilegível/curto), **abra o PDF original em `pecas/` e leia com sua "
+    "capacidade de visão** — não confie apenas no OCR.\n\n"
+)
 
 
 def _montar_instrucao(paj_pasta, prompt_content: str, skill_slug: str | None) -> str:
@@ -74,7 +93,8 @@ def _montar_instrucao(paj_pasta, prompt_content: str, skill_slug: str | None) ->
         )
 
     return (
-        cabecalho + "**OBRIGATORIO**: produzir o TEXTO da peca/despacho/oficio/orientacao, em "
+        cabecalho + _DIRETRIZES_PROFUNDIDADE
+        + "**OBRIGATORIO**: produzir o TEXTO da peca/despacho/oficio/orientacao, em "
         "linguagem apropriada, pronto pra copiar no SISDPU / protocolar / expedir. "
         "Nao basta dizer o que fazer — redija o produto final.\n\n"
         f"Salve o(s) arquivo(s) gerado(s) em `{paj_pasta}\\` "
@@ -149,6 +169,10 @@ class ChatSession:
             "--permission-mode",
             "bypassPermissions",
         ]
+        # Fixa o modelo da elaboracao (default opus[1m]) em vez de herdar o
+        # default da conta. Vazio no .env => deixa o CLI decidir.
+        if ELABORACAO_MODELO:
+            cmd += ["--model", ELABORACAO_MODELO]
         try:
             self.proc = subprocess.Popen(
                 cmd,
@@ -180,15 +204,15 @@ class ChatSession:
     def start(self) -> bool:
         """Inicia o subprocess Claude Code em modo stream-json."""
         prompt_path = PAJS_DIR / self.paj_norm / "PROMPT_MAX.md"
-        if not prompt_path.exists():
-            # Gera o PROMPT_MAX on-demand. No fluxo individual ele ja existe
-            # (criado ao abrir o PAJ, via ler_paj -> _garantir_prompt_max), mas
-            # na elaboracao em LOTE o PAJ pode nunca ter sido aberto — sem isto,
-            # start() saia sem fazer nada e a sessao ficava presa em "idle".
-            with contextlib.suppress(Exception):
-                from services.prompt_builder import gerar_prompt_max
+        # Regenera o PROMPT_MAX SEMPRE antes de elaborar: garante o inventario de
+        # anexos e demais melhorias do prompt_builder mesmo em PAJs cujo arquivo
+        # foi gerado por uma versao anterior, e reflete anexos recem-baixados.
+        # (No lote o PAJ pode nunca ter sido aberto — sem isto start() saia sem
+        # fazer nada e a sessao ficava presa em "idle".)
+        with contextlib.suppress(Exception):
+            from services.prompt_builder import gerar_prompt_max
 
-                gerar_prompt_max(self.paj_norm)
+            gerar_prompt_max(self.paj_norm)
         if not prompt_path.exists():
             self.status = "error"
             self.error = "PROMPT_MAX.md nao encontrado (e nao pode ser gerado)."
