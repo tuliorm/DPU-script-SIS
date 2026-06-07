@@ -39,6 +39,7 @@ IGNORAR = {
     "metadata.json",
     "PROMPT_MAX.md",
     "elaboracao.json",
+    "historico.jsonl",
     "sisdpu.txt",
     "NOTAS.md",
 }

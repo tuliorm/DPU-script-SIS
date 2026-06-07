@@ -12,6 +12,7 @@ import queue
 from config import OFICIO_GERAL, PAJS_DIR
 from services import historico
 from services.paj_service import IGNORAR as ARQUIVOS_NAO_PECAS
+from services.paj_service import listar_pajs
 from services.skills_catalog import skill_descricao, skill_valida
 import contextlib
 
@@ -124,6 +125,11 @@ class ChatSession:
         self.accumulated_text: str = ""  # texto acumulado da resposta atual
         self.summary: str = ""  # resumo final (ultima resposta do Claude)
         self.error: str = ""
+        # Elaboracao em background (start_or_queue): ao concluir, encerra o
+        # subprocess pra liberar o slot e destravar a fila do lote. Sessoes de
+        # chat interativo (get_or_create_session) deixam isto False, pois
+        # precisam manter o stdin aberto pra continuar a conversa multi-turn.
+        self.encerrar_ao_concluir: bool = False
 
     def _start_subprocess(self) -> bool:
         """Inicia o subprocess Claude Code CLI e a thread leitora.
@@ -175,7 +181,18 @@ class ChatSession:
         """Inicia o subprocess Claude Code em modo stream-json."""
         prompt_path = PAJS_DIR / self.paj_norm / "PROMPT_MAX.md"
         if not prompt_path.exists():
-            self.output_queue.put({"type": "error", "text": "PROMPT_MAX.md nao encontrado."})
+            # Gera o PROMPT_MAX on-demand. No fluxo individual ele ja existe
+            # (criado ao abrir o PAJ, via ler_paj -> _garantir_prompt_max), mas
+            # na elaboracao em LOTE o PAJ pode nunca ter sido aberto — sem isto,
+            # start() saia sem fazer nada e a sessao ficava presa em "idle".
+            with contextlib.suppress(Exception):
+                from services.prompt_builder import gerar_prompt_max
+
+                gerar_prompt_max(self.paj_norm)
+        if not prompt_path.exists():
+            self.status = "error"
+            self.error = "PROMPT_MAX.md nao encontrado (e nao pode ser gerado)."
+            self.output_queue.put({"type": "error", "text": self.error})
             self.output_queue.put({"type": "done"})
             return False
 
@@ -336,16 +353,47 @@ class ChatSession:
             result_text = event.get("result", "")
             if isinstance(result_text, dict):
                 result_text = result_text.get("text", "")
-            # Guarda o texto acumulado como summary (e o texto final desse turno)
-            if self.accumulated_text.strip():
-                self.summary = self.accumulated_text
-            elif isinstance(result_text, str) and result_text:
-                self.summary = result_text
-            self.status = "done"
-            self.last_action = "aguardando sua resposta"
+            # Texto final do turno: deltas acumulados ou, na falta, o campo result.
+            texto_final = self.accumulated_text.strip() or (
+                result_text if isinstance(result_text, str) else ""
+            )
+            self.summary = texto_final
             session_id = event.get("session_id", "")[:8]
+            # Detecta turno encerrado SEM sucesso: erro do CLI (is_error/subtype)
+            # ou limite de uso atingido (mensagem do Claude). Nesse caso NAO marca
+            # "done" — senao a peca nunca foi gerada, mas o PAJ apareceria como
+            # concluido (botao "Ver Resumo") e seria pulado em novos lotes como
+            # "ja elaborado". Marcar "error" deixa claro na UI e mantem elegivel.
+            low = texto_final.lower()
+            limite = any(s in low for s in ("session limit", "usage limit", "hit your"))
+            subtype = str(event.get("subtype") or "")
+            falhou = bool(event.get("is_error")) or subtype.startswith("error") or limite
+            if falhou:
+                self.status = "error"
+                self.error = (
+                    "Limite de uso do Claude atingido — reelabore após o reset."
+                    if limite
+                    else (texto_final[:200] or f"Claude terminou com erro ({subtype or '?'}).")
+                )
+                self.last_action = "erro: limite de uso" if limite else "erro"
+            else:
+                self.status = "done"
+                self.last_action = "aguardando sua resposta"
             # Persiste em disco pra sobreviver reinicio do servidor
             self._persist()
+            # Elaboracao em background: encerra o subprocess agora que terminou.
+            # Sem isto o CLI fica vivo (stdin aberto pra multi-turn) e o slot
+            # nunca e' liberado — travando a fila do lote. Fechar o stdin faz o
+            # CLI encerrar; alem disso promovemos a fila explicitamente (a sessao
+            # ja esta "done", entao nao conta como running), pra nao depender do
+            # tempo ate o processo morrer. Idempotente com o finally de
+            # _read_output. Correcoes posteriores reabrem via start_correcao().
+            if self.encerrar_ao_concluir:
+                with contextlib.suppress(Exception):
+                    if self.proc and self.proc.stdin:
+                        self.proc.stdin.close()
+                with contextlib.suppress(Exception):
+                    _process_queue()
             return {
                 "type": "result",
                 "text": result_text if isinstance(result_text, str) else "",
@@ -504,6 +552,10 @@ def start_or_queue(paj_norm: str, skill_slug: str | None = None) -> dict:
     if existing:
         existing.stop()
     session = ChatSession(paj_norm, skill_slug=skill_slug)
+    # Elaboracao em background: encerra o subprocess ao concluir pra liberar o
+    # slot (essencial pro lote — senao a fila trava). Correcoes posteriores
+    # reabrem a sessao via start_correcao().
+    session.encerrar_ao_concluir = True
     _sessions[paj_norm] = session
 
     if _count_running() >= MAX_PARALLEL:
@@ -532,4 +584,89 @@ def get_stats() -> dict:
         "running": _count_running(),
         "queued": len(_queue),
         "max_parallel": MAX_PARALLEL,
+    }
+
+
+# ----- Elaboracao em lote (toda a caixa de uma vez) -----
+
+
+def _em_andamento(paj_norm: str) -> bool:
+    """True se ja ha sessao rodando ou enfileirada para este PAJ."""
+    if paj_norm in _queue:
+        return True
+    s = _sessions.get(paj_norm)
+    return bool(s and s.status in ("running", "queued"))
+
+
+def start_lote(pajs: list[str], skill_slug: str | None = None) -> dict:
+    """Triagem + disparo de elaboracao para varios PAJs de uma vez.
+
+    Aplica a MESMA skill (ou modo automatico, se skill_slug=None) a todos os
+    PAJs elegiveis. Reusa start_or_queue, entao respeita MAX_PARALLEL: os
+    primeiros iniciam ja, o excedente entra na fila e e' promovido conforme
+    os slots liberam.
+
+    Elegibilidade (ordem de checagem = prioridade do motivo no relatorio):
+      1. esta na caixa (em_caixa_atual != False) e e' conhecido
+      2. NAO esta com sincronizacao incompleta (sync_incompleto)
+      3. TEM anexos baixados (n_anexos_sisdpu > 0)
+      4. ainda NAO foi elaborado com sucesso
+      5. NAO esta ja rodando/na fila
+
+    Os inelegiveis sao devolvidos agrupados por motivo, para o popup do front
+    informar quais PAJs nao foram elaborados (e por que).
+    """
+    # Snapshot do estado de disco (anexos, sync, em_caixa, pecas) sem gerar
+    # PROMPT_MAX para cada PAJ — reusa listar_pajs (cacheado, ja traz tudo).
+    mapa = {p["paj_norm"]: p for p in listar_pajs(incluir_concluidos=True)}
+
+    enviados: list[dict] = []
+    sem_anexos: list[str] = []
+    sync_incompleto: list[dict] = []
+    ja_elaborados: list[str] = []
+    em_andamento: list[str] = []
+    indisponiveis: list[str] = []
+
+    for paj_norm in pajs:
+        item = mapa.get(paj_norm)
+        if not item or item.get("em_caixa_atual") is False:
+            indisponiveis.append(paj_norm)
+            continue
+        if item.get("sync_incompleto"):
+            sync_incompleto.append(
+                {
+                    "paj": paj_norm,
+                    "motivo": item.get("sync_incompleto_motivo") or "sincronização incompleta",
+                }
+            )
+            continue
+        if not item.get("n_anexos_sisdpu", 0):
+            sem_anexos.append(paj_norm)
+            continue
+        # "Ja elaborado" = TEM peca gerada na pasta. Nao basta o status "done"
+        # do disco: uma rodada interrompida (ex: limite de uso do Claude)
+        # conclui sem produto — e precisa continuar elegivel pra reelaboracao.
+        if item.get("n_pecas", 0) > 0:
+            ja_elaborados.append(paj_norm)
+            continue
+        if _em_andamento(paj_norm):
+            em_andamento.append(paj_norm)
+            continue
+        res = start_or_queue(paj_norm, skill_slug=skill_slug)
+        enviados.append({"paj": paj_norm, "status": res.get("status", "running")})
+
+    return {
+        "ok": True,
+        "skill": skill_slug or "",
+        "total": len(pajs),
+        "n_enviados": len(enviados),
+        "enviados": enviados,
+        "pulados": {
+            "sync_incompleto": sync_incompleto,
+            "sem_anexos": sem_anexos,
+            "ja_elaborados": ja_elaborados,
+            "em_andamento": em_andamento,
+            "indisponiveis": indisponiveis,
+        },
+        "stats": get_stats(),
     }
