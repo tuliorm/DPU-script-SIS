@@ -14,10 +14,39 @@ PYTHON="$ROOT/.venv/bin/python"
 PORT=8001
 URL="http://127.0.0.1:$PORT/"
 
+# Abre a URL trazendo o navegador padrao PARA A FRENTE.
+# `open URL` sozinho as vezes so cria uma aba em segundo plano sem ativar o
+# navegador. Por isso descobrimos o navegador padrao (handler de http/https no
+# LaunchServices) e usamos `open -b <bundle-id>`, que ativa o app. Se a
+# deteccao falhar, cai no `open` simples (comportamento antigo, sem regressao).
+abrir_browser() {
+  local url="$1" bid=""
+  if [ -x "$PYTHON" ]; then
+    bid="$("$PYTHON" -c '
+import os, plistlib, sys
+p = os.path.expanduser("~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist")
+try:
+    d = plistlib.load(open(p, "rb"))
+except Exception:
+    sys.exit(0)
+for h in d.get("LSHandlers", []):
+    if h.get("LSHandlerURLScheme") in ("http", "https"):
+        b = h.get("LSHandlerRoleAll") or h.get("LSHandlerRoleViewer") or ""
+        if b:
+            print(b)
+            break
+' 2>/dev/null)" || bid=""
+  fi
+  if [ -n "$bid" ] && open -b "$bid" "$url" 2>/dev/null; then
+    return 0
+  fi
+  open "$url"
+}
+
 # Servidor ja esta de pe? (porta em LISTEN) -> so abre o browser
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "Servidor ja esta rodando. Abrindo o browser..."
-  open "$URL"
+  abrir_browser "$URL"
   exit 0
 fi
 
@@ -45,7 +74,7 @@ for _ in $(seq 1 40); do
   if curl -fsS --max-time 1 "$URL" >/dev/null 2>&1; then
     printf " pronto!\n"
     echo "Abrindo $URL"
-    open "$URL"
+    abrir_browser "$URL"
     exit 0
   fi
   printf "."
