@@ -19,6 +19,7 @@ from services.chat_service import (
 )
 from services.skills_catalog import listar_skills, skills_para_area
 from services.paj_service import PAJ_NORM_REGEX, PajNorm, ler_paj
+from services import cota_service
 from config import PAJS_DIR
 
 router = APIRouter()
@@ -77,6 +78,27 @@ async def api_skills(paj: str | None = None):
 async def elaborar_stats():
     """Retorna {running, queued, max_parallel} — pro dashboard."""
     return get_stats()
+
+
+# ----- Cota / re-disparo automatico -----
+
+
+@router.get("/api/cota/status")
+async def cota_status():
+    """Estado do re-disparo por cota (pro banner do dashboard)."""
+    return cota_service.status()
+
+
+@router.post("/api/cota/disparar-agora")
+async def cota_disparar_agora():
+    """Força o re-disparo imediato dos pendentes, ignorando o agendamento."""
+    return cota_service.disparar_agora()
+
+
+@router.post("/api/cota/cancelar")
+async def cota_cancelar():
+    """Cancela o agendamento e descarta os pendentes."""
+    return cota_service.cancelar()
 
 
 @router.get("/api/elaborar/status")

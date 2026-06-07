@@ -47,6 +47,17 @@ TIMEOUT_OCR_POR_PAGINA_SEG = int(os.getenv("TIMEOUT_OCR_POR_PAGINA_SEG", "30"))
 # vazio ("") pra deixar o CLI escolher o default da conta.
 ELABORACAO_MODELO = os.getenv("ELABORACAO_MODELO", "opus[1m]")
 
+# --- Re-disparo automatico apos renovacao da cota de uso do Claude ---
+# Quando o limite de uso estoura no meio da elaboracao, o painel observa o
+# horario de renovacao informado pelo CLI e re-dispara os PAJs pendentes
+# COTA_MARGEM_MIN minutos depois. Se nao conseguir parsear o horario, usa o
+# fallback. Re-tenta em cascata ate zerar os pendentes, limitado a
+# COTA_MAX_CICLOS. O scheduler verifica a cada COTA_TICK_SEG segundos.
+COTA_MARGEM_MIN = int(os.getenv("COTA_MARGEM_MIN", "10"))
+COTA_FALLBACK_MIN = int(os.getenv("COTA_FALLBACK_MIN", "60"))
+COTA_MAX_CICLOS = int(os.getenv("COTA_MAX_CICLOS", "12"))
+COTA_TICK_SEG = int(os.getenv("COTA_TICK_SEG", "60"))
+
 # Pasta onde DOCX/PDF gerados pelo docgen sao salvos.
 # Default: <OFICIO_GERAL>/Peças Feitas
 DOCGEN_OUT_DIR = Path(os.getenv("DOCGEN_OUT_DIR", str(OFICIO_GERAL / "Peças Feitas")))

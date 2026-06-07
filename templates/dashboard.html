@@ -248,6 +248,37 @@
     <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
   </dialog>
 
+  <!-- Banner de re-disparo por cota (cota de uso esgotada) -->
+  <div x-show="cota && cota.ativo" x-cloak class="px-8 pt-5">
+    <div class="alert shadow-sm" :class="cota.pausado ? 'alert-warning' : 'alert-info'">
+      <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"></path></svg>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm">
+          <span class="font-semibold">Cota de uso do Claude esgotada.</span>
+          <template x-if="cota.redisparo_em">
+            <span>
+              Re-disparo automático de
+              <span class="font-semibold tnum" x-text="cota.n_pendentes"></span>
+              PAJ(s) às
+              <span class="font-mono" x-text="formatarDataHora(cota.redisparo_em)"></span>
+              <span class="text-xs opacity-70" x-show="cota.ciclo > 0">
+                (ciclo <span x-text="cota.ciclo"></span>/<span x-text="cota.max_ciclos"></span>)
+              </span>.
+            </span>
+          </template>
+          <template x-if="!cota.redisparo_em">
+            <span><span class="font-semibold tnum" x-text="cota.n_pendentes"></span> PAJ(s) pendente(s) aguardando.</span>
+          </template>
+        </div>
+        <div class="text-xs opacity-70 mt-0.5 truncate" x-show="cota.ultimo_log" x-text="cota.ultimo_log"></div>
+      </div>
+      <div class="flex gap-2 shrink-0">
+        <button class="btn btn-sm" @click="cotaDispararAgora()" title="Re-dispara já os pendentes (exige cota renovada)">Disparar agora</button>
+        <button class="btn btn-sm btn-ghost" @click="cotaCancelar()" title="Cancela o agendamento e descarta os pendentes">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Banner de ambiente -->
   {% if ambiente and ambiente.avisos %}
   <div class="px-8 pt-5">
@@ -620,6 +651,7 @@ function dashboardApp() {
         ordemAsc: false,
         statusMap: {},
         stats: {running: 0, queued: 0, max_parallel: 5},
+        cota: {ativo: false, n_pendentes: 0, redisparo_em: '', pausado: false, ciclo: 0, max_ciclos: 12, ultimo_log: ''},
 
         // Estado do modal "Elaborar todos" (lote)
         loteSkills: [],
@@ -656,13 +688,38 @@ function dashboardApp() {
 
         async atualizarStatus() {
             try {
-                const [rStatus, rStats] = await Promise.all([
+                const [rStatus, rStats, rCota] = await Promise.all([
                     fetch('/api/elaborar/status'),
                     fetch('/api/elaborar/stats'),
+                    fetch('/api/cota/status'),
                 ]);
                 this.statusMap = await rStatus.json();
                 this.stats = await rStats.json();
+                this.cota = await rCota.json();
             } catch (e) {}
+        },
+
+        async cotaDispararAgora() {
+            if (!confirm('Disparar agora os PAJs pendentes? (a cota precisa ter renovado)')) return;
+            try {
+                const r = await fetch('/api/cota/disparar-agora', {method: 'POST'});
+                const d = await r.json();
+                if (d.teto) {
+                    showToast('Teto de ciclos atingido — disparando assim mesmo', 'warning');
+                }
+                showToast((d.disparados || 0) + ' PAJ(s) re-disparado(s)', 'info');
+                await this.atualizarStatus();
+            } catch (e) { showToast('Erro: ' + e.message, 'error'); }
+        },
+
+        async cotaCancelar() {
+            if (!confirm('Cancelar o re-disparo automático e descartar os pendentes?')) return;
+            try {
+                const r = await fetch('/api/cota/cancelar', {method: 'POST'});
+                const d = await r.json();
+                showToast('Re-disparo cancelado (' + (d.cancelados || 0) + ' descartado(s))', 'warning');
+                await this.atualizarStatus();
+            } catch (e) { showToast('Erro: ' + e.message, 'error'); }
         },
 
         statusOf(pajNorm) {
