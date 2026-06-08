@@ -109,7 +109,8 @@
           <label class="block text-sm font-medium mb-1">Skill a aplicar</label>
           <select class="select select-bordered select-sm w-full mb-1"
                   x-model="loteSkillSlug" :disabled="loteSkillsLoading">
-            <option value="">Claude decide (automático)</option>
+            <option value="__auto__">Automático — triagem inteligente (recomendado)</option>
+            <option value="">Claude decide (autônomo)</option>
             <template x-for="grupo in loteGrupos" :key="grupo">
               <optgroup :label="grupo">
                 <template x-for="s in loteSkillsDoGrupo(grupo)" :key="s.slug">
@@ -118,10 +119,22 @@
               </optgroup>
             </template>
           </select>
-          <p class="text-xs text-base-content/50 mb-4">
-            A mesma skill é aplicada a todos. Em "Claude decide", cada PAJ é diagnosticado
-            conforme o estado processual e o CLAUDE.md do workspace.
-          </p>
+          <template x-if="loteSkillSlug === '__auto__'">
+            <p class="text-xs text-base-content/60 mb-4">
+              Roteia por PAJ:
+              <strong class="tnum" x-text="loteTriagem.comProcesso.length"></strong> com processo →
+              <span class="font-mono">analisar-processo</span> (classifica e elabora; <strong>max</strong>
+              effort em <em>hard cases</em>) ·
+              <strong class="tnum" x-text="loteTriagem.semProcesso.length"></strong> sem processo →
+              <span class="font-mono">firac-triagem</span>.
+            </p>
+          </template>
+          <template x-if="loteSkillSlug !== '__auto__'">
+            <p class="text-xs text-base-content/50 mb-4">
+              A mesma skill é aplicada a todos. Em "Claude decide", cada PAJ é diagnosticado
+              conforme o estado processual e o CLAUDE.md do workspace.
+            </p>
+          </template>
 
           <div class="bg-info/10 border border-info/20 rounded-lg p-3 text-xs text-base-content/70 mb-4"
                x-show="loteTriagem.elegiveis.length > stats.max_parallel">
@@ -656,9 +669,9 @@ function dashboardApp() {
         // Estado do modal "Elaborar todos" (lote)
         loteSkills: [],
         loteGrupos: [],
-        loteSkillSlug: '',
+        loteSkillSlug: '__auto__',  // triagem inteligente por padrão
         loteSkillsLoading: true,
-        loteTriagem: { elegiveis: [], semAnexos: [], syncIncompleto: [], jaElaborados: [], emAndamento: [] },
+        loteTriagem: { elegiveis: [], semAnexos: [], syncIncompleto: [], jaElaborados: [], emAndamento: [], comProcesso: [], semProcesso: [] },
         loteResultado: null,
         loteEnviando: false,
 
@@ -740,7 +753,7 @@ function dashboardApp() {
         // considera PAJs da caixa (em_caixa_atual). É só a prévia do modal;
         // o relatório final vem do backend (autoritativo).
         classificarLote(lista) {
-            const r = { elegiveis: [], semAnexos: [], syncIncompleto: [], jaElaborados: [], emAndamento: [] };
+            const r = { elegiveis: [], semAnexos: [], syncIncompleto: [], jaElaborados: [], emAndamento: [], comProcesso: [], semProcesso: [] };
             for (const p of lista) {
                 if (p.em_caixa_atual === false) continue;  // fora da caixa não entra no lote
                 const st = this.statusOf(p.paj_norm).status || 'idle';
@@ -749,6 +762,8 @@ function dashboardApp() {
                 if (st === 'done' || (p.n_pecas || 0) > 0) { r.jaElaborados.push(p); continue; }
                 if (st === 'running' || st === 'queued') { r.emAndamento.push(p); continue; }
                 r.elegiveis.push(p);
+                // roteamento previsto (modo automático): com vs sem processo judicial
+                if ((p.processo_judicial || '').trim()) r.comProcesso.push(p); else r.semProcesso.push(p);
             }
             return r;
         },
@@ -812,11 +827,16 @@ function dashboardApp() {
                 return;
             }
             this.loteEnviando = true;
+            const auto = this.loteSkillSlug === '__auto__';
             try {
                 const resp = await fetch('/api/elaborar/start-lote', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pajs: pajs, skill: this.loteSkillSlug || '' }),
+                    body: JSON.stringify({
+                        pajs: pajs,
+                        skill: auto ? '' : (this.loteSkillSlug || ''),
+                        auto_rotear: auto,
+                    }),
                 });
                 const data = await resp.json();
                 this.loteResultado = data;

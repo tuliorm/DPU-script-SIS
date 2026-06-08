@@ -51,9 +51,10 @@ async def elaborar_start_lote(payload: dict = Body(...)):
     """
     pajs_raw = payload.get("pajs") or []
     skill_slug = (payload.get("skill") or "").strip() or None
+    auto_rotear = bool(payload.get("auto_rotear"))
     # So aceita identificadores no formato canonico — ignora lixo silenciosamente.
     pajs = [p for p in pajs_raw if isinstance(p, str) and re.match(PAJ_NORM_REGEX, p)]
-    return start_lote(pajs, skill_slug=skill_slug)
+    return start_lote(pajs, skill_slug=skill_slug, auto_rotear=auto_rotear)
 
 
 @router.get("/api/skills")

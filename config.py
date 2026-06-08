@@ -47,6 +47,35 @@ TIMEOUT_OCR_POR_PAGINA_SEG = int(os.getenv("TIMEOUT_OCR_POR_PAGINA_SEG", "30"))
 # vazio ("") pra deixar o CLI escolher o default da conta.
 ELABORACAO_MODELO = os.getenv("ELABORACAO_MODELO", "opus[1m]")
 
+# Nivel de ESFORCO (--effort do Claude CLI) da elaboracao — controla quanto o
+# modelo raciocina/gasta tokens. Valores: low, medium, high (default do CLI),
+# xhigh, max. Default aqui: xhigh (racioco profundo recomendado pra Opus 4.x em
+# tarefas analiticas; "max" rende ganho pequeno por custo bem maior). Fixar aqui
+# evita depender do ambiente (CLAUDE_CODE_EFFORT_LEVEL). Vazio = default do CLI.
+ELABORACAO_EFFORT = os.getenv("ELABORACAO_EFFORT", "xhigh")
+
+# Triagem inteligente do "Elaborar todos" (modo automatico). Roteia a skill por
+# PAJ: COM processo judicial -> SKILL_COM_PROCESSO (analisa/classifica e elabora);
+# SEM processo -> SKILL_SEM_PROCESSO (triagem pre-processual). Casos classificados
+# como HARD CASE pela analise elaboram a peca com ELABORACAO_EFFORT_HARD; os
+# demais mantem ELABORACAO_EFFORT. Tudo configuravel no .env.
+SKILL_COM_PROCESSO = os.getenv("SKILL_COM_PROCESSO", "analisar-processo")
+SKILL_SEM_PROCESSO = os.getenv("SKILL_SEM_PROCESSO", "firac-triagem")
+ELABORACAO_EFFORT_HARD = os.getenv("ELABORACAO_EFFORT_HARD", "max")
+
+# Fallback OCR-LLM: quando o Tesseract falha (OCR vazio/ilegivel/curto), um
+# modelo BARATO (Sonnet) transcreve o PDF com visao ANTES da elaboracao, e o
+# .txt melhorado fica cacheado pro Opus ler. Modelo/esforco proprios — e' tarefa
+# mecanica, nao precisa do Opus xhigh. Timeout de seguranca por anexo (autos
+# grandes demoram). Anexos com mais de OCR_LLM_MAX_PAGINAS paginas sao PULADOS
+# (o Opus le o PDF direto na elaboracao) — evita falha/timeout/custo em autos
+# gigantes. OCR_LLM_MAX_PAGINAS=0 => sem limite. OCR_LLM=0 desliga o fallback.
+OCR_LLM_ATIVO = os.getenv("OCR_LLM", "1") not in ("0", "false", "False", "")
+OCR_LLM_MODELO = os.getenv("OCR_LLM_MODELO", "sonnet")
+OCR_LLM_EFFORT = os.getenv("OCR_LLM_EFFORT", "low")
+OCR_LLM_TIMEOUT_SEG = int(os.getenv("OCR_LLM_TIMEOUT_SEG", "900"))
+OCR_LLM_MAX_PAGINAS = int(os.getenv("OCR_LLM_MAX_PAGINAS", "100"))  # 0 = sem limite
+
 # --- Re-disparo automatico apos renovacao da cota de uso do Claude ---
 # Quando o limite de uso estoura no meio da elaboracao, o painel observa o
 # horario de renovacao informado pelo CLI e re-dispara os PAJs pendentes

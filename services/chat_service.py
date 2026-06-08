@@ -9,7 +9,7 @@ import sys
 import threading
 import queue
 
-from config import ELABORACAO_MODELO, OFICIO_GERAL, PAJS_DIR
+from config import ELABORACAO_EFFORT, ELABORACAO_MODELO, OFICIO_GERAL, PAJS_DIR
 from services import historico
 from services.paj_service import IGNORAR as ARQUIVOS_NAO_PECAS
 from services.paj_service import listar_pajs
@@ -37,15 +37,17 @@ def _resolver_claude_cmd() -> list[str]:
 CLAUDE_CMD: list[str] = _resolver_claude_cmd()
 
 
-# Diretrizes de profundidade (esforco maximo) injetadas em toda elaboracao —
-# aproveitam o Opus 1M e a cota do defensor. (1) raciocinio estendido antes de
-# redigir; (2) leitura EXAUSTIVA dos anexos OCR; (3) visao no PDF quando o OCR
-# falha. O inventario de anexos vem no PROMPT_MAX (secao "Anexos baixados").
+# Diretrizes de profundidade injetadas em toda elaboracao. O NIVEL de raciocinio
+# e' controlado pela flag --effort (config.ELABORACAO_EFFORT), nao por palavra no
+# prompt ("ultrathink" e' soft-guidance do Claude Code interativo, redundante com
+# --effort). Aqui orientamos o METODO: (1) analisar a fundo antes de redigir;
+# (2) ler EXAUSTIVAMENTE os anexos OCR; (3) usar visao no PDF quando o OCR falha.
+# O inventario de anexos vem no PROMPT_MAX (secao "Anexos baixados").
 _DIRETRIZES_PROFUNDIDADE = (
-    "## Como trabalhar este PAJ (esforço máximo — não economize)\n"
-    "1. **ultrathink**: antes de redigir, raciocine a fundo sobre o estado "
-    "processual, prazos, o polo ocupado pela DPU/assistido e as teses cabíveis; "
-    "pondere alternativas e escolha a melhor.\n"
+    "## Como trabalhar este PAJ (não economize)\n"
+    "1. **Analise a fundo antes de redigir**: estado processual, prazos, o polo "
+    "ocupado pela DPU/assistido e as teses cabíveis; pondere alternativas e "
+    "escolha a melhor.\n"
     "2. **Leia TODOS os anexos** baixados do SIS — estão listados na seção "
     "'Anexos baixados do SIS' do contexto, como arquivos `pecas/*.txt` (texto "
     "OCR). Não se baseie só nas movimentações: abra e leia cada anexo relevante "
@@ -156,6 +158,23 @@ class ChatSession:
         # Quando setado, esta sessao retoma uma anterior (--resume) em vez de
         # comecar do zero — preenchido pelo re-disparo de cota.
         self.resume_session_id: str | None = None
+        # Override de modelo/esforco por sessao (cai nos globais ELABORACAO_* se
+        # None). Usado pela triagem inteligente: a Fase 2 de um HARD CASE roda em
+        # effort "max"; as demais mantem o global.
+        self.effort_override: str | None = None
+        self.modelo_override: str | None = None
+        # Triagem em 2 fases: quando True, ao concluir (Fase 1 = analisar-processo)
+        # o orquestrador encadeia a Fase 2 (elaboracao) com o effort da classificacao.
+        self.encadear_elaboracao: bool = False
+        self._fase2_disparada: bool = False
+        # Se setado, ao iniciar a sessao envia ESTA instrucao (Fase 2) em vez de
+        # montar o prompt padrao + PROMPT_MAX (Fase 1 / elaboracao normal).
+        self.instrucao_elaboracao: str | None = None
+        # Fase 1 da triagem: instrucao custom de CLASSIFICACAO (sem elaborar) que
+        # o start() envia ANEXADA ao PROMPT_MAX (mantem o contexto + regenera
+        # OCR-LLM/PROMPT_MAX). Diferente de instrucao_elaboracao (Fase 2), que NAO
+        # reenvia o PROMPT_MAX.
+        self.instrucao_inicial: str | None = None
 
     def _start_subprocess(self) -> bool:
         """Inicia o subprocess Claude Code CLI e a thread leitora.
@@ -175,10 +194,15 @@ class ChatSession:
             "--permission-mode",
             "bypassPermissions",
         ]
-        # Fixa o modelo da elaboracao (default opus[1m]) em vez de herdar o
-        # default da conta. Vazio no .env => deixa o CLI decidir.
-        if ELABORACAO_MODELO:
-            cmd += ["--model", ELABORACAO_MODELO]
+        # Modelo/esforco: override por sessao (triagem inteligente) tem prioridade
+        # sobre os globais. Fixar no comando garante determinismo (nao herda o
+        # default da conta nem o CLAUDE_EFFORT do shell, que e' read-only de hook).
+        modelo = self.modelo_override or ELABORACAO_MODELO
+        effort = self.effort_override or ELABORACAO_EFFORT
+        if modelo:
+            cmd += ["--model", modelo]
+        if effort:
+            cmd += ["--effort", effort]
         # Re-disparo apos cota: retoma a sessao interrompida de onde parou
         # (mantem contexto: anexos ja lidos, analise feita).
         if self.resume_session_id:
@@ -239,11 +263,23 @@ class ChatSession:
 
         # --- Fluxo normal (do zero) ---
         prompt_path = PAJS_DIR / self.paj_norm / "PROMPT_MAX.md"
+        # Fallback OCR-LLM: ANTES de montar o prompt, transcreve com Sonnet (por
+        # visao) os anexos cujo OCR local ficou fraco/ausente, pra o Opus ler o
+        # texto melhorado em vez de abrir o PDF com visao toda vez. Idempotente e
+        # best-effort. Pula se a cota esta esgotada (Sonnet tambem falharia) — a
+        # elaboracao Opus a seguir registra o estouro e dispara o re-disparo.
+        with contextlib.suppress(Exception):
+            import services.cota_service as _cota_chk
+
+            if not _cota_chk.esta_pausado():
+                from services.ocr_llm_service import melhorar_ocr_paj
+
+                melhorar_ocr_paj(self.paj_norm)
         # Regenera o PROMPT_MAX SEMPRE antes de elaborar: garante o inventario de
         # anexos e demais melhorias do prompt_builder mesmo em PAJs cujo arquivo
-        # foi gerado por uma versao anterior, e reflete anexos recem-baixados.
-        # (No lote o PAJ pode nunca ter sido aberto — sem isto start() saia sem
-        # fazer nada e a sessao ficava presa em "idle".)
+        # foi gerado por uma versao anterior, e reflete anexos recem-baixados
+        # (inclusive o OCR-LLM acima). No lote o PAJ pode nunca ter sido aberto —
+        # sem isto start() saia sem fazer nada e a sessao ficava presa em "idle".
         with contextlib.suppress(Exception):
             from services.prompt_builder import gerar_prompt_max
 
@@ -261,14 +297,33 @@ class ChatSession:
         # Envia PROMPT_MAX como prompt inicial
         prompt_content = prompt_path.read_text(encoding="utf-8", errors="replace")
         paj_pasta = PAJS_DIR / self.paj_norm
-        instrucao = _montar_instrucao(
-            paj_pasta=paj_pasta,
-            prompt_content=prompt_content,
-            skill_slug=self.skill_slug,
-        )
+        if self.instrucao_inicial:
+            # Fase 1 da triagem: instrução custom (classificar/recomendar, SEM
+            # elaborar) + o contexto do PROMPT_MAX anexado.
+            instrucao = f"{self.instrucao_inicial}\n\n---\n\n{prompt_content}"
+        else:
+            instrucao = _montar_instrucao(
+                paj_pasta=paj_pasta,
+                prompt_content=prompt_content,
+                skill_slug=self.skill_slug,
+            )
         # NAO fecha stdin — mantem aberto pra multi-turn
         self.status = "running"
         self.last_action = "iniciando..."
+        self.accumulated_text = ""
+        self.send_message(instrucao)
+        return True
+
+    def start_elaboracao(self, instrucao: str) -> bool:
+        """Fase 2 da triagem inteligente: inicia a sessao e envia uma instrucao
+        de elaboracao custom, SEM reenviar o PROMPT_MAX inline. Usa os overrides
+        de effort/modelo (ex: 'max' em hard case) e o --resume eventualmente
+        setados. A instrucao referencia os arquivos do PAJ (analise.md,
+        PROMPT_MAX.md) — o Claude os le do disco."""
+        if not self._start_subprocess():
+            return False
+        self.status = "running"
+        self.last_action = "elaborando (pós-triagem)..."
         self.accumulated_text = ""
         self.send_message(instrucao)
         return True
@@ -428,7 +483,13 @@ class ChatSession:
             # novos lotes. "error" deixa claro na UI e mantem elegivel.
             import services.cota_service as _cota
 
-            limite_cota = _cota.texto_indica_cota(texto_final) or (
+            # A mensagem de cota ("session limit · resets HH") vem no campo
+            # `result` do evento — o texto_final pode ter só a análise parcial do
+            # turno. Considera AMBOS pra detectar a cota E pra extrair o horário
+            # de reset (sem isto, o parse caía no fallback de 60min).
+            result_str = result_text if isinstance(result_text, str) else ""
+            texto_cota = " ".join(s for s in (result_str, texto_final) if s)
+            limite_cota = _cota.texto_indica_cota(texto_cota) or (
                 event.get("api_error_status") == 429
             )
             subtype = str(event.get("subtype") or "")
@@ -457,7 +518,7 @@ class ChatSession:
             if limite_cota and self.encerrar_ao_concluir:
                 with contextlib.suppress(Exception):
                     _cota.registrar_estouro(
-                        self.paj_norm, texto_final, self.skill_slug, self.session_id
+                        self.paj_norm, texto_cota, self.skill_slug, self.session_id
                     )
             # Elaboracao em background: encerra o subprocess agora que terminou.
             # Sem isto o CLI fica vivo (stdin aberto pra multi-turn) e o slot
@@ -472,6 +533,19 @@ class ChatSession:
                         self.proc.stdin.close()
                 with contextlib.suppress(Exception):
                     _process_queue()
+            # Fim da Fase 1 (analisar-processo) COM sucesso: encadeia a Fase 2
+            # (elaboracao) com o effort da classificacao (max se HARD CASE). Em
+            # thread daemon pra nao travar o leitor de stdout. Idempotente.
+            if self.status == "done" and self.encadear_elaboracao and not self._fase2_disparada:
+                self._fase2_disparada = True
+                with contextlib.suppress(Exception):
+                    from services import triagem_lote
+
+                    threading.Thread(
+                        target=triagem_lote.encadear_fase2,
+                        args=(self.paj_norm, self.summary, self.session_id),
+                        daemon=True,
+                    ).start()
             return {
                 "type": "result",
                 "text": result_text if isinstance(result_text, str) else "",
@@ -596,6 +670,15 @@ def _count_running() -> int:
     return sum(1 for s in _sessions.values() if s.status == "running")
 
 
+def _iniciar_sessao(session: ChatSession) -> bool:
+    """Inicia a sessao no modo certo: Fase 2 da triagem (instrucao_elaboracao
+    setada) usa start_elaboracao (instrucao custom, sem PROMPT_MAX inline);
+    demais usam start() (regenera PROMPT_MAX + instrucao padrao)."""
+    if session.instrucao_elaboracao:
+        return session.start_elaboracao(session.instrucao_elaboracao)
+    return session.start()
+
+
 def _process_queue() -> None:
     """Promove proximos da fila enquanto houver slots livres."""
     # Cota esgotada: a fila fica CONGELADA — iniciar novos PAJs so' geraria mais
@@ -611,8 +694,8 @@ def _process_queue() -> None:
         if not session:
             continue
         # Promove: inicia o subprocess agora
-        session.status = "idle"  # reset pra start() funcionar
-        session.start()
+        session.status = "idle"  # reset pra iniciar
+        _iniciar_sessao(session)
 
 
 def get_or_create_session(paj_norm: str, skill_slug: str | None = None) -> ChatSession:
@@ -630,11 +713,23 @@ def start_or_queue(
     paj_norm: str,
     skill_slug: str | None = None,
     resume_session_id: str | None = None,
+    *,
+    effort_override: str | None = None,
+    modelo_override: str | None = None,
+    encadear_elaboracao: bool = False,
+    instrucao_elaboracao: str | None = None,
+    instrucao_inicial: str | None = None,
 ) -> dict:
     """Inicia sessao se houver slot, senao enfileira. Retorna status atual.
 
-    `resume_session_id`: se informado, a sessao retoma uma anterior via --resume
-    (continuar de onde parou) — usado pelo re-disparo de cota.
+    `resume_session_id`: retoma uma sessao anterior via --resume (re-disparo de
+    cota / Fase 2 nao-hard da triagem).
+    `effort_override`/`modelo_override`: forcam effort/modelo desta sessao (ex:
+    'max' na Fase 2 de um HARD CASE).
+    `encadear_elaboracao`: ao concluir (Fase 1 analisar-processo), dispara a
+    Fase 2 (elaboracao) via triagem_lote.
+    `instrucao_elaboracao`: se setada, inicia em modo Fase 2 (instrucao custom
+    em vez do PROMPT_MAX padrao).
     """
     existing = _sessions.get(paj_norm)
     # Se ja esta rodando, nao faz nada
@@ -652,6 +747,11 @@ def start_or_queue(
     # slot (essencial pro lote — senao a fila trava). Correcoes posteriores
     # reabrem a sessao via start_correcao().
     session.encerrar_ao_concluir = True
+    session.effort_override = effort_override
+    session.modelo_override = modelo_override
+    session.encadear_elaboracao = encadear_elaboracao
+    session.instrucao_elaboracao = instrucao_elaboracao
+    session.instrucao_inicial = instrucao_inicial
     if resume_session_id:
         session.resume_session_id = resume_session_id
     _sessions[paj_norm] = session
@@ -664,7 +764,7 @@ def start_or_queue(
         return {"status": "queued", "last_action": session.last_action}
 
     # Ha slot livre — inicia imediatamente
-    session.start()
+    _iniciar_sessao(session)
     return {"status": session.status, "last_action": session.last_action}
 
 
@@ -696,13 +796,18 @@ def _em_andamento(paj_norm: str) -> bool:
     return bool(s and s.status in ("running", "queued"))
 
 
-def start_lote(pajs: list[str], skill_slug: str | None = None) -> dict:
+def start_lote(
+    pajs: list[str], skill_slug: str | None = None, auto_rotear: bool = False
+) -> dict:
     """Triagem + disparo de elaboracao para varios PAJs de uma vez.
 
-    Aplica a MESMA skill (ou modo automatico, se skill_slug=None) a todos os
-    PAJs elegiveis. Reusa start_or_queue, entao respeita MAX_PARALLEL: os
-    primeiros iniciam ja, o excedente entra na fila e e' promovido conforme
-    os slots liberam.
+    Modos:
+      - `skill_slug` setada: aplica a MESMA skill a todos (override manual).
+      - `auto_rotear=True` (sem skill): TRIAGEM INTELIGENTE — roteia por PAJ via
+        services.triagem_lote (com processo -> analisar-processo + pipeline de 2
+        fases com effort condicional; sem processo -> firac-triagem).
+      - nenhum dos dois: modo autonomo legado (Claude decide).
+    Reusa start_or_queue/MAX_PARALLEL: os primeiros iniciam, o excedente enfileira.
 
     Elegibilidade (ordem de checagem = prioridade do motivo no relatorio):
       1. esta na caixa (em_caixa_atual != False) e e' conhecido
@@ -750,12 +855,28 @@ def start_lote(pajs: list[str], skill_slug: str | None = None) -> dict:
         if _em_andamento(paj_norm):
             em_andamento.append(paj_norm)
             continue
-        res = start_or_queue(paj_norm, skill_slug=skill_slug)
-        enviados.append({"paj": paj_norm, "status": res.get("status", "running")})
+        if auto_rotear and not skill_slug:
+            # Triagem inteligente: roteia skill/fluxo por PAJ (com processo ->
+            # pipeline analisar-processo; sem -> firac-triagem).
+            from services import triagem_lote
+
+            res = triagem_lote.disparar_paj(paj_norm, item)
+            enviados.append(
+                {
+                    "paj": paj_norm,
+                    "status": res.get("status", "running"),
+                    "skill": res.get("skill"),
+                    "fluxo": res.get("fluxo"),
+                }
+            )
+        else:
+            res = start_or_queue(paj_norm, skill_slug=skill_slug)
+            enviados.append({"paj": paj_norm, "status": res.get("status", "running")})
 
     return {
         "ok": True,
         "skill": skill_slug or "",
+        "auto_rotear": bool(auto_rotear and not skill_slug),
         "total": len(pajs),
         "n_enviados": len(enviados),
         "enviados": enviados,

@@ -52,6 +52,20 @@ async def limpar_anexos_executar(paj_norm: PajNorm, forcar: bool = False):
     return resultado
 
 
+@router.post("/api/paj/{paj_norm}/melhorar-ocr", response_class=JSONResponse)
+def api_melhorar_ocr(paj_norm: PajNorm):
+    """Transcreve, via Sonnet (visao), os anexos do PAJ cujo OCR ficou fraco.
+
+    Sincrono de proposito (FastAPI roda `def` em threadpool, sem travar o event
+    loop): a transcricao pode demorar em autos grandes. Idempotente — pula o que
+    ja foi transcrito. O gatilho automatico roda antes da elaboracao; este botao
+    e' pra antecipar/forcar sob demanda. Import tardio evita ciclo no startup.
+    """
+    from services.ocr_llm_service import melhorar_ocr_paj
+
+    return melhorar_ocr_paj(paj_norm)
+
+
 @router.get("/api/paj/{paj_norm}/notas", response_class=JSONResponse)
 async def api_notas_ler(paj_norm: PajNorm):
     """Le NOTAS.md do PAJ (string vazia se nao existe)."""

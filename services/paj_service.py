@@ -279,6 +279,16 @@ def listar_pajs(incluir_concluidos: bool = False) -> list[dict]:
     return resultado
 
 
+def tem_processo(item: dict) -> bool:
+    """True se o PAJ tem processo judicial vinculado (numero CNJ no metadata).
+
+    Usado pelo roteamento da triagem em lote: COM processo -> analisar-processo;
+    SEM -> firac-triagem. Aceita tanto o item resumido de listar_pajs quanto um
+    metadata bruto (ambos expoem `processo_judicial`).
+    """
+    return bool((item.get("processo_judicial") or "").strip())
+
+
 def ler_paj(paj_norm: str) -> dict | None:
     """Retorna dados completos de um PAJ."""
     pasta = PAJS_DIR / paj_norm
