@@ -41,6 +41,26 @@ def _tesseract_ok() -> tuple[bool, str]:
         return (False, f"erro ao executar: {type(e).__name__}: {e}")
 
 
+def _ocrmypdf_ok() -> tuple[bool, str]:
+    """Retorna (ok, versao_ou_motivo).
+
+    ocrmypdf e' o OCR de 1a linha (deskew/clean/rotate + Tesseract via
+    Ghostscript) — melhora muito o texto de escaneados. E' OPCIONAL: se ausente,
+    o painel cai no Tesseract cru pagina-a-pagina (comportamento antigo).
+    """
+    exe = shutil.which("ocrmypdf")
+    if not exe:
+        return (False, "ocrmypdf nao encontrado no PATH")
+    try:
+        import subprocess
+
+        out = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=10)
+        linhas = (out.stdout or out.stderr or "").strip().splitlines()
+        return (True, (linhas[0].strip() if linhas else "ok"))
+    except Exception as e:
+        return (False, f"erro ao executar: {type(e).__name__}: {e}")
+
+
 def _chromium_ok() -> tuple[bool, str]:
     """Retorna (ok, motivo).
 
@@ -94,6 +114,7 @@ def verificar_ambiente(forcar: bool = False) -> dict:
         return _cache
 
     t_ok, t_info = _tesseract_ok()
+    o_ok, o_info = _ocrmypdf_ok()
     c_ok, c_info = _chromium_ok()
     erros_path = validar_paths()
 
@@ -105,12 +126,20 @@ def verificar_ambiente(forcar: bool = False) -> dict:
             f"Tesseract ausente — OCR desligado. {t_info}. "
             "Instale pelo README (UB-Mannheim) e reinicie o painel."
         )
+    # ocrmypdf e' OPCIONAL (ha fallback Tesseract) — aviso brando, so' informativo.
+    if t_ok and not o_ok:
+        avisos.append(
+            "ocrmypdf ausente — OCR usando Tesseract cru (qualidade menor em "
+            "escaneados). Opcional: instale `ocrmypdf` (brew/pip) p/ melhorar."
+        )
     if not c_ok:
         avisos.append(f"Chromium do Playwright ausente — sync SISDPU vai falhar. {c_info}.")
 
     _cache = {
         "tesseract_ok": t_ok,
         "tesseract_info": t_info,
+        "ocrmypdf_ok": o_ok,
+        "ocrmypdf_info": o_info,
         "chromium_ok": c_ok,
         "chromium_info": c_info,
         "avisos": avisos,

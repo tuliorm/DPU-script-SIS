@@ -962,23 +962,27 @@ async function melhorarOcr(pajNorm, btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Transcrevendo…';
     }
-    showToast('Transcrevendo anexos de OCR fraco via Sonnet — pode demorar em autos grandes.', 'info');
+    showToast('Melhorando OCR: tenta OCR local (grátis) primeiro e usa Sonnet só no que faltar — pode demorar em autos grandes.', 'info');
     try {
         const r = await fetch('/api/paj/' + encodeURIComponent(pajNorm) + '/melhorar-ocr', { method: 'POST' });
         const d = await r.json();
         const nt = (d.transcritos || []).length;
+        const nl = (d.ocr_local || []).length;
         const nf = (d.falhas || []).length;
         const ng = (d.grandes || []).length;
         const extra = (nf ? ' · ' + nf + ' falha(s)' : '') + (ng ? ' · ' + ng + ' grande(s) pulado(s) — Opus lê direto' : '');
         if (d.cota) {
             showToast('Cota esgotada durante a transcrição — tente novamente após a renovação.', 'warning');
-        } else if (nt > 0) {
-            showToast(nt + ' anexo(s) transcrito(s) via Sonnet' + extra + ' — recarregando.', 'success');
+        } else if ((nt + nl) > 0) {
+            const partes = [];
+            if (nl) partes.push(nl + ' via OCR local (grátis)');
+            if (nt) partes.push(nt + ' via Sonnet');
+            showToast(partes.join(' + ') + ' melhorado(s)' + extra + ' — recarregando.', 'success');
             setTimeout(function () { window.location.reload(); }, 1200);
         } else if (nf > 0 || ng > 0) {
-            showToast('Nada transcrito' + extra + '.', nf ? 'warning' : 'info');
+            showToast('Nada melhorado' + extra + '.', nf ? 'warning' : 'info');
         } else {
-            showToast('Nada a transcrever: o OCR já está bom em todos os anexos.', 'info');
+            showToast('Nada a melhorar: o OCR já está bom em todos os anexos.', 'info');
         }
     } catch (e) {
         showToast('Erro ao transcrever: ' + e.message, 'error');

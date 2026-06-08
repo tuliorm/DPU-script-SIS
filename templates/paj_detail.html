@@ -553,15 +553,16 @@
         <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
             <p class="text-xs text-base-content/50 max-w-xl">
                 Anexos baixados do SIS. Para os de <strong>OCR fraco/ausente</strong>, o botão
-                transcreve via <strong>Sonnet (visão)</strong> e melhora o texto que o Claude lê
-                na elaboração. Roda automaticamente antes de elaborar; aqui é para antecipar.
+                tenta primeiro o <strong>OCR local</strong> (ocrmypdf, grátis) e só usa o
+                <strong>Sonnet (visão)</strong> no que faltar. Roda automaticamente antes de
+                elaborar; aqui é para antecipar.
             </p>
             <button id="btn-melhorar-ocr"
                     class="btn btn-sm btn-outline btn-accent gap-1.5 shrink-0"
                     onclick="melhorarOcr('{{ paj_norm }}', this)"
-                    title="Transcreve com Sonnet os anexos cujo OCR local falhou (idempotente — pula os já bons)">
+                    title="Melhora o OCR dos anexos: OCR local (ocrmypdf, grátis) primeiro, Sonnet só no resíduo (idempotente — pula os já bons)">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"></path></svg>
-                Melhorar OCR (Sonnet)
+                Melhorar OCR
             </button>
         </div>
         <div class="overflow-x-auto rounded-lg border border-base-300">

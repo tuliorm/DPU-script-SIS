@@ -39,6 +39,17 @@ MAX_ANEXOS_POR_PAJ = int(os.getenv("MAX_ANEXOS_POR_PAJ", "30"))
 # corrompidos podem travar o OCR — esse limite garante progresso.
 TIMEOUT_OCR_POR_PAGINA_SEG = int(os.getenv("TIMEOUT_OCR_POR_PAGINA_SEG", "30"))
 
+# --- OCR de 1a linha: ocrmypdf (pre-processamento + Tesseract) ---
+# Quando o PDF e' escaneado (texto nativo insuficiente), o OCR local tenta
+# PRIMEIRO o ocrmypdf — pipeline robusto (Ghostscript rasteriza + deskew/clean/
+# rotate antes do Tesseract) que resolve a maioria dos casos onde o Tesseract
+# cru devolvia vazio. E' OFFLINE e sem custo de token. Se o binario `ocrmypdf`
+# nao estiver no PATH (ou falhar), cai no Tesseract pagina-a-pagina (antigo).
+# OCR_PREPROC=0 desliga e usa direto o Tesseract cru. Timeout do DOCUMENTO todo
+# (ocrmypdf processa o PDF inteiro de uma vez, nao pagina-a-pagina).
+OCR_PREPROC_ATIVO = os.getenv("OCR_PREPROC", "1") not in ("0", "false", "False", "")
+OCR_PREPROC_TIMEOUT_SEG = int(os.getenv("OCR_PREPROC_TIMEOUT_SEG", "600"))
+
 # Modelo usado pela ELABORACAO de pecas (Claude Code CLI), tanto individual
 # quanto em lote. Default: Opus com janela de 1M tokens — o melhor pra analise
 # juridica densa (le todos os anexos sem estourar contexto). Fixar aqui evita
@@ -63,18 +74,27 @@ SKILL_COM_PROCESSO = os.getenv("SKILL_COM_PROCESSO", "analisar-processo")
 SKILL_SEM_PROCESSO = os.getenv("SKILL_SEM_PROCESSO", "firac-triagem")
 ELABORACAO_EFFORT_HARD = os.getenv("ELABORACAO_EFFORT_HARD", "max")
 
-# Fallback OCR-LLM: quando o Tesseract falha (OCR vazio/ilegivel/curto), um
-# modelo BARATO (Sonnet) transcreve o PDF com visao ANTES da elaboracao, e o
-# .txt melhorado fica cacheado pro Opus ler. Modelo/esforco proprios — e' tarefa
-# mecanica, nao precisa do Opus xhigh. Timeout de seguranca por anexo (autos
-# grandes demoram). Anexos com mais de OCR_LLM_MAX_PAGINAS paginas sao PULADOS
-# (o Opus le o PDF direto na elaboracao) — evita falha/timeout/custo em autos
-# gigantes. OCR_LLM_MAX_PAGINAS=0 => sem limite. OCR_LLM=0 desliga o fallback.
+# Fallback OCR-LLM: quando o OCR local (ocrmypdf/Tesseract) AINDA falha (texto
+# vazio/ilegivel/curto), um modelo BARATO (Sonnet) transcreve o PDF com visao
+# ANTES da elaboracao, e o .txt melhorado fica cacheado pro Opus ler. Modelo/
+# esforco proprios — tarefa mecanica, nao precisa do Opus xhigh.
+#
+# PDFs grandes sao transcritos EM BLOCOS de OCR_LLM_CHUNK_PAGINAS paginas (cada
+# bloco = 1 chamada ao Sonnet; os textos sao concatenados no fim). Assim nao ha
+# mais um teto que faca "pular" o anexo. OCR_LLM_TIMEOUT_SEG e' o limite POR
+# BLOCO (nao pelo anexo inteiro).
+#
+# OCR_LLM_MAX_PAGINAS e' apenas um teto de SEGURANCA: anexos acima dele sao
+# pulados (o Opus le o PDF direto) — protege contra autos de milhares de paginas
+# (custo). Default 0 = SEM teto (transcreve tudo em blocos). OCR_LLM=0 desliga.
 OCR_LLM_ATIVO = os.getenv("OCR_LLM", "1") not in ("0", "false", "False", "")
 OCR_LLM_MODELO = os.getenv("OCR_LLM_MODELO", "sonnet")
 OCR_LLM_EFFORT = os.getenv("OCR_LLM_EFFORT", "low")
-OCR_LLM_TIMEOUT_SEG = int(os.getenv("OCR_LLM_TIMEOUT_SEG", "900"))
-OCR_LLM_MAX_PAGINAS = int(os.getenv("OCR_LLM_MAX_PAGINAS", "100"))  # 0 = sem limite
+OCR_LLM_TIMEOUT_SEG = int(os.getenv("OCR_LLM_TIMEOUT_SEG", "900"))  # por BLOCO
+OCR_LLM_CHUNK_PAGINAS = int(os.getenv("OCR_LLM_CHUNK_PAGINAS", "40"))  # paginas/bloco ao Sonnet
+OCR_LLM_MAX_PAGINAS = int(
+    os.getenv("OCR_LLM_MAX_PAGINAS", "0")
+)  # teto de seguranca; 0 = sem limite
 
 # --- Re-disparo automatico apos renovacao da cota de uso do Claude ---
 # Quando o limite de uso estoura no meio da elaboracao, o painel observa o

@@ -13,10 +13,91 @@ gigantes/corrompidos).
 
 from __future__ import annotations
 
-from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 from collections.abc import Callable
+from functools import lru_cache
+from pathlib import Path
 
 _MIN_NATIVE_CHARS = 200
+
+
+@lru_cache(maxsize=1)
+def _ocrmypdf_exe() -> str | None:
+    """Caminho do binario `ocrmypdf` (ou None se ausente). Cacheado."""
+    return shutil.which("ocrmypdf")
+
+
+def _preproc_config() -> tuple[bool, int]:
+    """(ativo, timeout_seg) do pre-processamento ocrmypdf. Import tardio de
+    config pra manter este modulo desacoplado/testavel."""
+    try:
+        from config import OCR_PREPROC_ATIVO, OCR_PREPROC_TIMEOUT_SEG
+
+        return bool(OCR_PREPROC_ATIVO), int(OCR_PREPROC_TIMEOUT_SEG)
+    except Exception:
+        return True, 600
+
+
+def _ocr_com_ocrmypdf(pdf_path: Path, timeout_seg: int) -> str | None:
+    """OCR de 1a linha via `ocrmypdf` (deskew/clean/rotate + Tesseract sob
+    Ghostscript). Devolve o texto (formatado por paginas) ou None se o binario
+    estiver ausente, der timeout, falhar ou sair vazio — nesses casos o chamador
+    cai no Tesseract pagina-a-pagina (comportamento antigo).
+
+    Usa `--force-ocr` porque so' chamamos isto quando o texto nativo e'
+    insuficiente (PDF escaneado): forcar garante OCR mesmo em paginas com
+    texto-imagem residual, e evita o erro "page already has text".
+    """
+    exe = _ocrmypdf_exe()
+    if not exe:
+        return None
+    with tempfile.TemporaryDirectory(prefix="ocrmypdf_") as td:
+        out_pdf = Path(td) / "out.pdf"
+        sidecar = Path(td) / "sidecar.txt"
+        cmd = [
+            exe,
+            "--language",
+            "por",
+            "--force-ocr",
+            "--deskew",
+            "--rotate-pages",
+            "--clean",
+            "--quiet",
+            str(pdf_path),
+            str(out_pdf),
+            "--sidecar",
+            str(sidecar),
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, timeout=timeout_seg)
+        except Exception:
+            # TimeoutExpired (o run mata o processo) ou qualquer falha de spawn.
+            return None
+        if proc.returncode != 0 or not sidecar.exists():
+            return None
+        try:
+            texto = sidecar.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return None
+
+    texto = (texto or "").strip()
+    if len(texto) < 20:
+        return None
+    # ocrmypdf/Tesseract separam paginas com form-feed (\f). Reescreve no padrao
+    # "=== pagina N ===" usado pelo extrator nativo (consistencia p/ o resto).
+    blocos: list[str] = []
+    n = 0
+    for pg in texto.split("\f"):
+        pg = pg.strip()
+        if not pg:
+            continue
+        n += 1
+        blocos.append(f"=== pagina {n} ===\n{pg}\n")
+    if not blocos:
+        return None
+    return "\n".join(blocos)
 
 
 def _ocr_pagina(pagina, timeout_seg: int) -> tuple[str, bool]:
@@ -89,6 +170,18 @@ def extrair_texto(
         total_paginas = len(nativos)
 
         usar_ocr = total_nativo < _MIN_NATIVE_CHARS
+
+        # OCR de 1a linha: ocrmypdf (pre-processamento robusto). So' p/ PDFs
+        # escaneados, quando ativo e com o binario disponivel. Processa o
+        # documento inteiro de uma vez (nao da p/ cancelar pagina-a-pagina) —
+        # por isso checamos o cancelamento ANTES de iniciar. Se sair vazio,
+        # indisponivel ou falhar, segue no Tesseract cru pagina-a-pagina abaixo.
+        preproc_ativo, preproc_timeout = _preproc_config()
+        if usar_ocr and preproc_ativo and (deve_cancelar is None or not deve_cancelar()):
+            texto_pp = _ocr_com_ocrmypdf(pdf_path, preproc_timeout)
+            if texto_pp:
+                return texto_pp  # o finally fecha o doc
+
         ocr_disponivel = True
         for i, pagina in enumerate(doc, start=1):
             # Cancelamento cooperativo — checado antes de cada pagina.
