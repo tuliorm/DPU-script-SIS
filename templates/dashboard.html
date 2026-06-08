@@ -35,6 +35,16 @@
   }
   .chip-input:hover { border-color: hsl(var(--bc) / 0.18); }
   .chip-input:focus-within { border-color: hsl(var(--p) / 0.6); }
+
+  /* Botões em azul royal (#4169E1) — "Elaborar todos" e o confirmar do modal.
+     !important porque o Tailwind Play CDN regenera/reinjeta seu stylesheet em
+     runtime quando o DOM muda (ex: ao abrir o modal), o que reordenaria a
+     cascata e devolveria a cor do DaisyUI ao botão. O estado desabilitado
+     continua cinza via regra própria (:disabled) abaixo. */
+  .btn-royal { background-color: #4169e1 !important; border-color: #4169e1 !important; color: #fff !important; }
+  .btn-royal:hover { background-color: #3457cc !important; border-color: #3457cc !important; }
+  .btn-royal:disabled,
+  .btn-royal[disabled] { background-color: #4169e1 !important; border-color: #4169e1 !important; opacity: .45 !important; }
 </style>
 {% endblock %}
 
@@ -42,6 +52,245 @@
 <div x-data="dashboardApp()" x-init="init()" x-cloak class="flex flex-col flex-1">
 
   {% include "partials/sync_modal.html" %}
+
+  <!-- Modal: Elaborar todos (lote) -->
+  <dialog id="lote-modal" class="modal">
+    <div class="modal-box w-11/12 max-w-2xl">
+
+      <!-- FASE 1: confirmacao + triagem (previa no cliente) -->
+      <template x-if="!loteResultado">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-lg">Elaborar PAJs da caixa</h3>
+            <form method="dialog"><button class="btn btn-sm btn-ghost">X</button></form>
+          </div>
+
+          <p class="text-sm text-base-content/70 mb-4">
+            Elabora automaticamente, em segundo plano, os PAJs
+            <template x-if="temFiltrosAtivos()"><span class="font-semibold">filtrados na tela</span></template>
+            <template x-if="!temFiltrosAtivos()"><span class="font-semibold">da caixa</span></template>
+            que tenham <span class="font-semibold">anexos baixados</span> e estejam
+            <span class="font-semibold">em sincronia</span>.
+          </p>
+
+          <!-- Resumo da triagem -->
+          <div class="grid grid-cols-2 gap-3 mb-4">
+            <div class="bg-success/10 border border-success/30 rounded-lg p-3">
+              <div class="text-2xl font-bold text-success tnum" x-text="loteTriagem.elegiveis.length"></div>
+              <div class="text-xs text-base-content/70">serão elaborados</div>
+            </div>
+            <div class="bg-base-200 border border-base-content/10 rounded-lg p-3">
+              <div class="text-2xl font-bold text-base-content/60 tnum" x-text="totalPuladosTriagem()"></div>
+              <div class="text-xs text-base-content/70">serão pulados</div>
+            </div>
+          </div>
+
+          <!-- Detalhe dos pulados (so' aparece se houver) -->
+          <div class="text-xs space-y-1 mb-4" x-show="totalPuladosTriagem() > 0">
+            <div x-show="loteTriagem.semAnexos.length" class="flex items-center gap-2">
+              <span class="badge badge-warning badge-sm tnum" x-text="loteTriagem.semAnexos.length"></span>
+              <span>sem anexos baixados</span>
+            </div>
+            <div x-show="loteTriagem.syncIncompleto.length" class="flex items-center gap-2">
+              <span class="badge badge-error badge-sm tnum" x-text="loteTriagem.syncIncompleto.length"></span>
+              <span>com sincronização incompleta</span>
+            </div>
+            <div x-show="loteTriagem.jaElaborados.length" class="flex items-center gap-2">
+              <span class="badge badge-ghost badge-sm tnum" x-text="loteTriagem.jaElaborados.length"></span>
+              <span>já elaborados</span>
+            </div>
+            <div x-show="loteTriagem.emAndamento.length" class="flex items-center gap-2">
+              <span class="badge badge-ghost badge-sm tnum" x-text="loteTriagem.emAndamento.length"></span>
+              <span>já em andamento</span>
+            </div>
+          </div>
+
+          <!-- Seletor de skill -->
+          <label class="block text-sm font-medium mb-1">Skill a aplicar</label>
+          <select class="select select-bordered select-sm w-full mb-1"
+                  x-model="loteSkillSlug" :disabled="loteSkillsLoading">
+            <option value="__auto__">Automático — triagem inteligente (recomendado)</option>
+            <option value="">Claude decide (autônomo)</option>
+            <template x-for="grupo in loteGrupos" :key="grupo">
+              <optgroup :label="grupo">
+                <template x-for="s in loteSkillsDoGrupo(grupo)" :key="s.slug">
+                  <option :value="s.slug" :title="s.descricao" x-text="s.label"></option>
+                </template>
+              </optgroup>
+            </template>
+          </select>
+          <template x-if="loteSkillSlug === '__auto__'">
+            <p class="text-xs text-base-content/60 mb-4">
+              Roteia por PAJ:
+              <strong class="tnum" x-text="loteTriagem.comProcesso.length"></strong> com processo →
+              <span class="font-mono">analisar-processo</span> (classifica e elabora; <strong>max</strong>
+              effort em <em>hard cases</em>) ·
+              <strong class="tnum" x-text="loteTriagem.semProcesso.length"></strong> sem processo →
+              <span class="font-mono">firac-triagem</span>.
+            </p>
+          </template>
+          <template x-if="loteSkillSlug !== '__auto__'">
+            <p class="text-xs text-base-content/50 mb-4">
+              A mesma skill é aplicada a todos. Em "Claude decide", cada PAJ é diagnosticado
+              conforme o estado processual e o CLAUDE.md do workspace.
+            </p>
+          </template>
+
+          <div class="bg-info/10 border border-info/20 rounded-lg p-3 text-xs text-base-content/70 mb-4"
+               x-show="loteTriagem.elegiveis.length > stats.max_parallel">
+            Rodam até <span class="font-semibold tnum" x-text="stats.max_parallel"></span> em paralelo;
+            o restante entra na fila e é processado conforme liberam. Pode navegar livremente.
+          </div>
+
+          <div class="flex justify-end gap-2">
+            <form method="dialog"><button class="btn btn-sm btn-ghost">Cancelar</button></form>
+            <button class="btn btn-sm btn-royal gap-2"
+                    :disabled="loteTriagem.elegiveis.length === 0 || loteEnviando"
+                    @click="confirmarLote()">
+              <span x-show="loteEnviando" class="loading loading-spinner loading-xs"></span>
+              <span x-text="loteEnviando ? 'Enviando...' : ('Elaborar ' + loteTriagem.elegiveis.length + ' PAJ' + (loteTriagem.elegiveis.length === 1 ? '' : 's'))"></span>
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- FASE 2: relatorio final (autoritativo, vindo do backend) -->
+      <template x-if="loteResultado">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-lg">Elaboração em massa iniciada</h3>
+            <form method="dialog"><button class="btn btn-sm btn-ghost" @click="fecharLoteModal()">X</button></form>
+          </div>
+
+          <div class="alert alert-success mb-4">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"></path></svg>
+            <span>
+              <span class="font-semibold tnum" x-text="loteResultado.n_enviados"></span>
+              PAJ(s) enviados para elaboração
+              <span class="text-xs opacity-80" x-show="loteResultado.stats">
+                (<span class="tnum" x-text="loteResultado.stats.running"></span> rodando agora,
+                <span class="tnum" x-text="loteResultado.stats.queued"></span> na fila)
+              </span>
+            </span>
+          </div>
+
+          <!-- Nao elaborados, agrupados por motivo -->
+          <template x-if="totalPuladosResultado() > 0">
+            <div>
+              <h4 class="font-semibold text-sm mb-2">
+                Não elaborados (<span class="tnum" x-text="totalPuladosResultado()"></span>)
+              </h4>
+              <div class="space-y-3 max-h-[44vh] overflow-y-auto pr-1">
+
+                <template x-if="loteResultado.pulados.sem_anexos.length">
+                  <div>
+                    <div class="text-xs font-semibold text-warning mb-1">
+                      Sem anexos baixados (<span class="tnum" x-text="loteResultado.pulados.sem_anexos.length"></span>) — sincronize com anexos
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                      <template x-for="p in loteResultado.pulados.sem_anexos" :key="p">
+                        <a :href="'/paj/' + p" class="badge badge-outline badge-sm font-mono hover:badge-warning" x-text="fmtPaj(p)"></a>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="loteResultado.pulados.sync_incompleto.length">
+                  <div>
+                    <div class="text-xs font-semibold text-error mb-1">
+                      Sincronização incompleta (<span class="tnum" x-text="loteResultado.pulados.sync_incompleto.length"></span>) — re-sincronize antes
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                      <template x-for="p in loteResultado.pulados.sync_incompleto" :key="p.paj">
+                        <a :href="'/paj/' + p.paj" :title="p.motivo" class="badge badge-outline badge-sm font-mono hover:badge-error" x-text="fmtPaj(p.paj)"></a>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="loteResultado.pulados.ja_elaborados.length">
+                  <div>
+                    <div class="text-xs font-semibold text-base-content/60 mb-1">
+                      Já elaborados (<span class="tnum" x-text="loteResultado.pulados.ja_elaborados.length"></span>)
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                      <template x-for="p in loteResultado.pulados.ja_elaborados" :key="p">
+                        <a :href="'/paj/' + p" class="badge badge-ghost badge-sm font-mono" x-text="fmtPaj(p)"></a>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="loteResultado.pulados.em_andamento.length">
+                  <div>
+                    <div class="text-xs font-semibold text-base-content/60 mb-1">
+                      Já em andamento (<span class="tnum" x-text="loteResultado.pulados.em_andamento.length"></span>)
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                      <template x-for="p in loteResultado.pulados.em_andamento" :key="p">
+                        <a :href="'/paj/' + p" class="badge badge-ghost badge-sm font-mono" x-text="fmtPaj(p)"></a>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="loteResultado.pulados.indisponiveis.length">
+                  <div>
+                    <div class="text-xs font-semibold text-base-content/60 mb-1">
+                      Indisponíveis / fora da caixa (<span class="tnum" x-text="loteResultado.pulados.indisponiveis.length"></span>)
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                      <template x-for="p in loteResultado.pulados.indisponiveis" :key="p">
+                        <span class="badge badge-ghost badge-sm font-mono" x-text="fmtPaj(p)"></span>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+              </div>
+            </div>
+          </template>
+
+          <div class="flex justify-end gap-2 mt-4">
+            <form method="dialog"><button class="btn btn-sm btn-primary" @click="fecharLoteModal()">Fechar</button></form>
+          </div>
+        </div>
+      </template>
+
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+  </dialog>
+
+  <!-- Banner de re-disparo por cota (cota de uso esgotada) -->
+  <div x-show="cota && cota.ativo" x-cloak class="px-8 pt-5">
+    <div class="alert shadow-sm" :class="cota.pausado ? 'alert-warning' : 'alert-info'">
+      <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"></path></svg>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm">
+          <span class="font-semibold">Cota de uso do Claude esgotada.</span>
+          <template x-if="cota.redisparo_em">
+            <span>
+              Re-disparo automático de
+              <span class="font-semibold tnum" x-text="cota.n_pendentes"></span>
+              PAJ(s) às
+              <span class="font-mono" x-text="formatarDataHora(cota.redisparo_em)"></span>
+              <span class="text-xs opacity-70" x-show="cota.ciclo > 0">
+                (ciclo <span x-text="cota.ciclo"></span>/<span x-text="cota.max_ciclos"></span>)
+              </span>.
+            </span>
+          </template>
+          <template x-if="!cota.redisparo_em">
+            <span><span class="font-semibold tnum" x-text="cota.n_pendentes"></span> PAJ(s) pendente(s) aguardando.</span>
+          </template>
+        </div>
+        <div class="text-xs opacity-70 mt-0.5 truncate" x-show="cota.ultimo_log" x-text="cota.ultimo_log"></div>
+      </div>
+      <div class="flex gap-2 shrink-0">
+        <button class="btn btn-sm" @click="cotaDispararAgora()" title="Re-dispara já os pendentes (exige cota renovada)">Disparar agora</button>
+        <button class="btn btn-sm btn-ghost" @click="cotaCancelar()" title="Cancela o agendamento e descarta os pendentes">Cancelar</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Banner de ambiente -->
   {% if ambiente and ambiente.avisos %}
@@ -92,6 +341,13 @@
           <span class="text-base-content/40 tnum" x-show="!mostrarConcluidos && totalConcluidos > 0" x-text="`(+${totalConcluidos})`"></span>
         </span>
       </label>
+      <button class="btn btn-royal btn-sm gap-2 normal-case"
+              :disabled="pajs.length === 0"
+              @click="abrirLoteModal()"
+              title="Elabora automaticamente todos os PAJs filtrados que tenham anexos baixados e estejam em sincronia">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"></path></svg>
+        Elaborar todos
+      </button>
       <div class="join">
         <button class="join-item btn btn-primary btn-sm gap-2 normal-case" onclick="sincronizarCaixa(true)">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12a7.5 7.5 0 0 1-13.05 5.07M4.5 12A7.5 7.5 0 0 1 17.55 6.93M4.5 4.5v4.5h4.5M19.5 19.5V15h-4.5"></path></svg>
@@ -408,6 +664,16 @@ function dashboardApp() {
         ordemAsc: false,
         statusMap: {},
         stats: {running: 0, queued: 0, max_parallel: 5},
+        cota: {ativo: false, n_pendentes: 0, redisparo_em: '', pausado: false, ciclo: 0, max_ciclos: 12, ultimo_log: ''},
+
+        // Estado do modal "Elaborar todos" (lote)
+        loteSkills: [],
+        loteGrupos: [],
+        loteSkillSlug: '__auto__',  // triagem inteligente por padrão
+        loteSkillsLoading: true,
+        loteTriagem: { elegiveis: [], semAnexos: [], syncIncompleto: [], jaElaborados: [], emAndamento: [], comProcesso: [], semProcesso: [] },
+        loteResultado: null,
+        loteEnviando: false,
 
         async init() {
             await this.recarregar();
@@ -435,17 +701,162 @@ function dashboardApp() {
 
         async atualizarStatus() {
             try {
-                const [rStatus, rStats] = await Promise.all([
+                const [rStatus, rStats, rCota] = await Promise.all([
                     fetch('/api/elaborar/status'),
                     fetch('/api/elaborar/stats'),
+                    fetch('/api/cota/status'),
                 ]);
                 this.statusMap = await rStatus.json();
                 this.stats = await rStats.json();
+                this.cota = await rCota.json();
             } catch (e) {}
+        },
+
+        async cotaDispararAgora() {
+            if (!confirm('Disparar agora os PAJs pendentes? (a cota precisa ter renovado)')) return;
+            try {
+                const r = await fetch('/api/cota/disparar-agora', {method: 'POST'});
+                const d = await r.json();
+                if (d.teto) {
+                    showToast('Teto de ciclos atingido — disparando assim mesmo', 'warning');
+                }
+                showToast((d.disparados || 0) + ' PAJ(s) re-disparado(s)', 'info');
+                await this.atualizarStatus();
+            } catch (e) { showToast('Erro: ' + e.message, 'error'); }
+        },
+
+        async cotaCancelar() {
+            if (!confirm('Cancelar o re-disparo automático e descartar os pendentes?')) return;
+            try {
+                const r = await fetch('/api/cota/cancelar', {method: 'POST'});
+                const d = await r.json();
+                showToast('Re-disparo cancelado (' + (d.cancelados || 0) + ' descartado(s))', 'warning');
+                await this.atualizarStatus();
+            } catch (e) { showToast('Erro: ' + e.message, 'error'); }
         },
 
         statusOf(pajNorm) {
             return this.statusMap[pajNorm] || {};
+        },
+
+        // ----- Elaborar todos (lote) -----
+
+        temFiltrosAtivos() {
+            return !!(this.filtroOficio || this.filtroForo || this.filtroClassif || this.busca);
+        },
+
+        fmtPaj(pajNorm) {
+            return (typeof formatarPajNorm === 'function') ? formatarPajNorm(pajNorm) : pajNorm;
+        },
+
+        // Triagem no cliente — MESMOS critérios do backend (start_lote). Só
+        // considera PAJs da caixa (em_caixa_atual). É só a prévia do modal;
+        // o relatório final vem do backend (autoritativo).
+        classificarLote(lista) {
+            const r = { elegiveis: [], semAnexos: [], syncIncompleto: [], jaElaborados: [], emAndamento: [], comProcesso: [], semProcesso: [] };
+            for (const p of lista) {
+                if (p.em_caixa_atual === false) continue;  // fora da caixa não entra no lote
+                const st = this.statusOf(p.paj_norm).status || 'idle';
+                if (p.sync_incompleto) { r.syncIncompleto.push(p); continue; }
+                if (!(p.n_anexos_sisdpu > 0)) { r.semAnexos.push(p); continue; }
+                if (st === 'done' || (p.n_pecas || 0) > 0) { r.jaElaborados.push(p); continue; }
+                if (st === 'running' || st === 'queued') { r.emAndamento.push(p); continue; }
+                r.elegiveis.push(p);
+                // roteamento previsto (modo automático): com vs sem processo judicial
+                if ((p.processo_judicial || '').trim()) r.comProcesso.push(p); else r.semProcesso.push(p);
+            }
+            return r;
+        },
+
+        totalPuladosTriagem() {
+            const t = this.loteTriagem;
+            return t.semAnexos.length + t.syncIncompleto.length + t.jaElaborados.length + t.emAndamento.length;
+        },
+
+        totalPuladosResultado() {
+            if (!this.loteResultado) return 0;
+            const p = this.loteResultado.pulados || {};
+            return (p.sem_anexos?.length || 0) + (p.sync_incompleto?.length || 0)
+                 + (p.ja_elaborados?.length || 0) + (p.em_andamento?.length || 0)
+                 + (p.indisponiveis?.length || 0);
+        },
+
+        async abrirLoteModal() {
+            this.loteResultado = null;
+            this.loteEnviando = false;
+            // Status fresco antes de triar (define já-elaborado / em-andamento)
+            await this.atualizarStatus();
+            this.loteTriagem = this.classificarLote(this.pajsFiltrados);
+            if (this.loteSkills.length === 0) {
+                await this.carregarSkillsLote();
+            }
+            const modal = document.getElementById('lote-modal');
+            if (modal) modal.showModal();
+        },
+
+        async carregarSkillsLote() {
+            this.loteSkillsLoading = true;
+            try {
+                const resp = await fetch('/api/skills');
+                const data = await resp.json();
+                this.loteSkills = data.skills || [];
+                const vistos = new Set();
+                this.loteGrupos = [];
+                for (const s of this.loteSkills) {
+                    if (!vistos.has(s.grupo)) { vistos.add(s.grupo); this.loteGrupos.push(s.grupo); }
+                }
+            } catch (e) {
+                console.warn('Falha ao carregar skills do lote:', e);
+            } finally {
+                this.loteSkillsLoading = false;
+            }
+        },
+
+        loteSkillsDoGrupo(grupo) {
+            return this.loteSkills.filter(s => s.grupo === grupo);
+        },
+
+        async confirmarLote() {
+            // Manda todos os candidatos da caixa visíveis; o backend tria de
+            // novo (autoritativo) e devolve enviados + pulados por motivo.
+            const pajs = this.pajsFiltrados
+                .filter(p => p.em_caixa_atual !== false)
+                .map(p => p.paj_norm);
+            if (pajs.length === 0) {
+                showToast('Nenhum PAJ na caixa para elaborar', 'warning');
+                return;
+            }
+            this.loteEnviando = true;
+            const auto = this.loteSkillSlug === '__auto__';
+            try {
+                const resp = await fetch('/api/elaborar/start-lote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pajs: pajs,
+                        skill: auto ? '' : (this.loteSkillSlug || ''),
+                        auto_rotear: auto,
+                    }),
+                });
+                const data = await resp.json();
+                this.loteResultado = data;
+                if (data.stats) this.stats = data.stats;
+                if (data.n_enviados > 0) {
+                    showToast(data.n_enviados + ' PAJ(s) em elaboração — acompanhe na lista', 'success');
+                } else {
+                    showToast('Nenhum PAJ elegível foi elaborado — veja os motivos', 'warning');
+                }
+                await this.atualizarStatus();
+            } catch (e) {
+                showToast('Erro ao iniciar lote: ' + e.message, 'error');
+            } finally {
+                this.loteEnviando = false;
+            }
+        },
+
+        fecharLoteModal() {
+            const modal = document.getElementById('lote-modal');
+            if (modal) modal.close();
         },
 
         // Compara o estado atual do PAJ contra o snapshot guardado em

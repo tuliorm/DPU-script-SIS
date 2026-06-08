@@ -5,17 +5,21 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Body
 from fastapi.responses import HTMLResponse, JSONResponse
 
+import re
+
 from services.chat_service import (
     ChatSession,
     get_or_create_session,
     stop_session,
     start_or_queue,
+    start_lote,
     get_stats,
     ler_elaboracao_disco,
     _sessions,
 )
 from services.skills_catalog import listar_skills, skills_para_area
-from services.paj_service import PajNorm, ler_paj
+from services.paj_service import PAJ_NORM_REGEX, PajNorm, ler_paj
+from services import cota_service
 from config import PAJS_DIR
 
 router = APIRouter()
@@ -34,6 +38,23 @@ async def elaborar_start(paj_norm: PajNorm, payload: dict = Body(default={})):
     """
     skill_slug = (payload.get("skill") or "").strip() or None
     return start_or_queue(paj_norm, skill_slug=skill_slug)
+
+
+@router.post("/api/elaborar/start-lote")
+async def elaborar_start_lote(payload: dict = Body(...)):
+    """Elabora em lote todos os PAJs informados que forem elegiveis.
+
+    Body: {"pajs": ["PAJ-YYYY-NNN-XXXXX", ...], "skill": "<slug>"}.
+    A lista de PAJs vem do dashboard (os filtrados na tela). O backend faz a
+    triagem autoritativa (anexos baixados + sincronia + nao-elaborado) e
+    devolve os enviados e os pulados agrupados por motivo — vide start_lote.
+    """
+    pajs_raw = payload.get("pajs") or []
+    skill_slug = (payload.get("skill") or "").strip() or None
+    auto_rotear = bool(payload.get("auto_rotear"))
+    # So aceita identificadores no formato canonico — ignora lixo silenciosamente.
+    pajs = [p for p in pajs_raw if isinstance(p, str) and re.match(PAJ_NORM_REGEX, p)]
+    return start_lote(pajs, skill_slug=skill_slug, auto_rotear=auto_rotear)
 
 
 @router.get("/api/skills")
@@ -58,6 +79,27 @@ async def api_skills(paj: str | None = None):
 async def elaborar_stats():
     """Retorna {running, queued, max_parallel} — pro dashboard."""
     return get_stats()
+
+
+# ----- Cota / re-disparo automatico -----
+
+
+@router.get("/api/cota/status")
+async def cota_status():
+    """Estado do re-disparo por cota (pro banner do dashboard)."""
+    return cota_service.status()
+
+
+@router.post("/api/cota/disparar-agora")
+async def cota_disparar_agora():
+    """Força o re-disparo imediato dos pendentes, ignorando o agendamento."""
+    return cota_service.disparar_agora()
+
+
+@router.post("/api/cota/cancelar")
+async def cota_cancelar():
+    """Cancela o agendamento e descarta os pendentes."""
+    return cota_service.cancelar()
 
 
 @router.get("/api/elaborar/status")

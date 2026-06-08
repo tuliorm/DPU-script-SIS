@@ -157,6 +157,17 @@ for _aviso in app.state.ambiente.get("avisos", []):
     print(f"[AMBIENTE] {_aviso}")
 
 
+@app.on_event("startup")
+async def _startup_cota() -> None:
+    """Arma o re-disparo automatico por cota: le o estado persistido em disco e
+    inicia o scheduler. Se o horario de re-disparo ja passou (servidor estava
+    fora do ar), o proximo tick dispara assim que o servidor sobe."""
+    with contextlib.suppress(Exception):
+        from services import cota_service
+
+        cota_service.carregar_e_rearmar()
+
+
 def _cleanup_port(port: int) -> None:
     """Mata TODOS processos LISTEN na porta informada (Windows-only)."""
     if os.name != "nt":

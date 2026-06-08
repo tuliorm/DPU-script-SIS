@@ -39,6 +39,7 @@ IGNORAR = {
     "metadata.json",
     "PROMPT_MAX.md",
     "elaboracao.json",
+    "historico.jsonl",
     "sisdpu.txt",
     "NOTAS.md",
 }
@@ -276,6 +277,16 @@ def listar_pajs(incluir_concluidos: bool = False) -> list[dict]:
     _list_cache["key"] = chave
     _list_cache["result"] = resultado
     return resultado
+
+
+def tem_processo(item: dict) -> bool:
+    """True se o PAJ tem processo judicial vinculado (numero CNJ no metadata).
+
+    Usado pelo roteamento da triagem em lote: COM processo -> analisar-processo;
+    SEM -> firac-triagem. Aceita tanto o item resumido de listar_pajs quanto um
+    metadata bruto (ambos expoem `processo_judicial`).
+    """
+    return bool((item.get("processo_judicial") or "").strip())
 
 
 def ler_paj(paj_norm: str) -> dict | None:

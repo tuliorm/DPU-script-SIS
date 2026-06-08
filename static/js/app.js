@@ -954,6 +954,40 @@ async function salvarNotas(pajNorm) {
 }
 
 /* =========================================================
+   Fallback OCR-LLM (Sonnet) — transcreve anexos de OCR fraco
+   ========================================================= */
+async function melhorarOcr(pajNorm, btn) {
+    const original = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Transcrevendo…';
+    }
+    showToast('Transcrevendo anexos de OCR fraco via Sonnet — pode demorar em autos grandes.', 'info');
+    try {
+        const r = await fetch('/api/paj/' + encodeURIComponent(pajNorm) + '/melhorar-ocr', { method: 'POST' });
+        const d = await r.json();
+        const nt = (d.transcritos || []).length;
+        const nf = (d.falhas || []).length;
+        const ng = (d.grandes || []).length;
+        const extra = (nf ? ' · ' + nf + ' falha(s)' : '') + (ng ? ' · ' + ng + ' grande(s) pulado(s) — Opus lê direto' : '');
+        if (d.cota) {
+            showToast('Cota esgotada durante a transcrição — tente novamente após a renovação.', 'warning');
+        } else if (nt > 0) {
+            showToast(nt + ' anexo(s) transcrito(s) via Sonnet' + extra + ' — recarregando.', 'success');
+            setTimeout(function () { window.location.reload(); }, 1200);
+        } else if (nf > 0 || ng > 0) {
+            showToast('Nada transcrito' + extra + '.', nf ? 'warning' : 'info');
+        } else {
+            showToast('Nada a transcrever: o OCR já está bom em todos os anexos.', 'info');
+        }
+    } catch (e) {
+        showToast('Erro ao transcrever: ' + e.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    }
+}
+
+/* =========================================================
    Busca global (Ctrl+K / Cmd+K)
    ========================================================= */
 let _buscaDebounce = null;
